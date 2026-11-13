@@ -1,7 +1,7 @@
 """
 ================================================================================
 PROJECT: EduCore AI - Akıllı Yerel Yapay Zeka Stüdyosu
-VERSION: v2026.TrueAI.Core - Secured Firewall & Advanced Group Edition
+VERSION: v2026.TrueAI.Core - Seamless Login & Secure Backend Edition
 ================================================================================
 """
 
@@ -15,19 +15,18 @@ st.set_page_config(
     page_title="EduCore AI - Akıllı Stüdyo", page_icon="🧠", layout="wide"
 )
 
-# Veritabanı Kurulumu ve Güvenlik Altyapısı
+# Veritabanı Kurulumu ve Güvenlik Altyapısı (Hash Şifreleme)
 DB_PATH = "educore_master.db"
 
 
 def hash_password(password: str) -> str:
-  """Şifreleri dışarıdan sızmalara karşı SHA-256 ile şifreler (Güvenlik Duvarı)"""
+  """Şifreleri dışarıdan sızmalara karşı arka planda SHA-256 ile korur"""
   return hashlib.sha256(password.encode()).hexdigest()
 
 
 def init_db():
   conn = sqlite3.connect(DB_PATH)
   c = conn.cursor()
-  # Kullanıcılar Tablosu (Güvenli Şifreleme ile)
   c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,7 +38,6 @@ def init_db():
             created_at TEXT
         )
     """)
-  # Gruplar Tablosu (Aynı isimde grup adı olabilir, ID'ler benzersizdir)
   c.execute("""
         CREATE TABLE IF NOT EXISTS groups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,7 +46,6 @@ def init_db():
             created_at TEXT
         )
     """)
-  # Grup Üyeleri Tablosu
   c.execute("""
         CREATE TABLE IF NOT EXISTS group_members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,7 +54,6 @@ def init_db():
             UNIQUE(group_id, member_code)
         )
     """)
-  # Grup Davetleri Tablosu
   c.execute("""
         CREATE TABLE IF NOT EXISTS group_invites (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,7 +63,6 @@ def init_db():
             UNIQUE(group_id, invitee_code)
         )
     """)
-  # Grup Mesajları Tablosu
   c.execute("""
         CREATE TABLE IF NOT EXISTS group_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -247,7 +242,7 @@ if not st.session_state.user:
         """
             <div class="hero-box">
               <h2>EduCore AI Stüdyo</h2>
-              <p style="margin:5px 0 0 0; color:#e2e8f0;">Güvenli Yerel Yapay Zeka Asistanı</p>
+              <p style="margin:5px 0 0 0; color:#e2e8f0;">Akıllı Yerel Yapay Zeka Asistanı</p>
             </div>
         """,
         unsafe_allow_html=True,
@@ -256,11 +251,9 @@ if not st.session_state.user:
     auth_tab1, auth_tab2 = st.tabs(["🚀 Oturum Aç", "📝 Kayıt Ol"])
 
     with auth_tab1:
-      st.markdown("### 🔐 Güvenli Hesap Girişi")
+      st.markdown("### 🔐 Hesap Girişi")
       l_email = st.text_input("Gmail / E-posta Adresi", key="login_email")
-      l_pass = st.text_input(
-          "Şifre", type="password", key="login_pass"
-      )  # Şifreler hashlenerek kontrol ediliyor
+      l_pass = st.text_input("Şifre", type="password", key="login_pass")
 
       if st.button("Giriş Yap", type="primary"):
         if l_email and l_pass:
@@ -286,15 +279,16 @@ if not st.session_state.user:
             st.success(f"Hoş geldin {row[3]}!")
             st.rerun()
           else:
+            # Arkadaşın rahatça girebilmesi için net ve anlaşılır hata mesajı
             st.error(
-                "❌ E-posta veya şifre hatalı! Güvenlik duvarı erişimi"
-                " onaylamadı."
+                "❌ E-posta veya şifre hatalı! Lütfen bilgilerinizi kontrol"
+                " edin."
             )
         else:
           st.warning("Lütfen tüm alanları doldurun.")
 
     with auth_tab2:
-      st.markdown("### ✨ Yeni Hesap Oluştur (Şifreli Altyapı)")
+      st.markdown("### ✨ Yeni Hesap Oluştur")
       r_email = st.text_input("Gmail / E-posta Adresi", key="reg_email")
       r_pass = st.text_input("Şifre", type="password", key="reg_pass")
       r_pass2 = st.text_input(
@@ -307,7 +301,7 @@ if not st.session_state.user:
       )
       r_grade = st.selectbox("Eğitim Kademeniz", list(CURRICULUM.keys()), index=2)
 
-      if st.button("Kayıt Ol ve Güvenli Bağlan", type="primary"):
+      if st.button("Kayıt Ol ve Bağlan", type="primary"):
         if not r_email or not r_pass or not r_nick:
           st.warning("Lütfen tüm alanları eksiksiz doldurun.")
         elif r_pass != r_pass2:
@@ -320,7 +314,6 @@ if not st.session_state.user:
             cnt = c.fetchone()[0] + 1
             unique_id_code = f"EDU-{cnt:05d}"
 
-            # Şifreyi şifreleme duvarından geçirerek güvenli hale getiriyoruz
             secured_pass = hash_password(r_pass)
 
             c.execute(
@@ -338,12 +331,12 @@ if not st.session_state.user:
             conn.commit()
             conn.close()
             st.success(
-                "✅ Kaydınız başarıyla ve güvenle oluşturuldu! Benzersiz"
-                f" Numaranız (ID): {unique_id_code}. Şimdi 'Oturum Aç'"
-                " sekmesinden giriş yapabilirsiniz."
+                "✅ Kaydınız başarıyla oluşturuldu! Benzersiz Numaranız (ID):"
+                f" {unique_id_code}. Şimdi 'Oturum Aç' sekmesinden giriş"
+                " yapabilirsiniz."
             )
           except sqlite3.IntegrityError:
-            st.error("❌ Bu Gmail adresi ile zaten korumalı bir hesap kayıtlı!")
+            st.error("❌ Bu Gmail adresi ile zaten bir hesap kayıtlı!")
 
 # 2. ANA UYGULAMA EKRANI
 else:
@@ -380,7 +373,7 @@ else:
       f"""
         <div class="hero-box" style="padding: 20px;">
           <h2>EduCore AI Stüdyosu — {subj}</h2>
-          <p style="margin:0; color:#e2e8f0;">{cat} | Güvenli Duvar & ID Tabanlı Gruplar Aktif</p>
+          <p style="margin:0; color:#e2e8f0;">{cat} | Güvenli Altyapı & ID Tabanlı Gruplar Aktif</p>
         </div>
     """,
       unsafe_allow_html=True,
@@ -446,7 +439,6 @@ else:
   with tabs[1]:
     st.markdown("### 👥 Gruplar, Davetler & Güvenli Mesajlaşma")
 
-    # 1. Gelen Davetleri Kontrol Et ve Göster
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
@@ -519,7 +511,6 @@ else:
         if new_g_name.strip():
           conn = sqlite3.connect(DB_PATH)
           c = conn.cursor()
-          # Aynı isimde grup olabilir, ID ayrıştırır
           c.execute(
               "INSERT INTO groups (group_name, creator_code, created_at) VALUES"
               " (?, ?, ?)",
@@ -556,7 +547,6 @@ else:
       conn.close()
 
       if my_groups:
-        # Aynı isimde birden fazla grup olabileceği için seçimi ID ile benzersiz yapalım
         group_options = {
             f"{g[1]} (Kurucu: {g[2]} - ID#{g[0]})": g[0] for g in my_groups
         }
@@ -564,7 +554,6 @@ else:
             "Sohbet Edebileceğin Gruplar", list(group_options.keys())
         )
         selected_group_id = group_options[selected_label]
-        # İsmi bul
         selected_group_name = selected_label.split(" (Kurucu:")[0]
       else:
         selected_group_name = None
@@ -574,7 +563,6 @@ else:
     if selected_group_name and selected_group_id:
       st.markdown(f"---")
 
-      # Grup Kurucusu mu kontrol et
       conn = sqlite3.connect(DB_PATH)
       c = conn.cursor()
       c.execute(
@@ -685,7 +673,6 @@ else:
 
       st.markdown(f"### 💬 Sohbet Odası: `{selected_group_name}`")
 
-      # Mesajları veritabanından çek
       conn = sqlite3.connect(DB_PATH)
       c = conn.cursor()
       c.execute(
@@ -732,10 +719,10 @@ else:
           st.rerun()
 
   with tabs[2]:
-    st.markdown("### ⚙️ Hesap Ayarları & Güvenlik Duvarı")
+    st.markdown("### ⚙️ Hesap Ayarları & Güvenlik")
     st.info(
-        f"Sana Özel Sistem Numaran (ID): **`{u_code}`** | Gmail Koruması: **Aktif"
-        " (SHA-256 Şifrelenmiş)**"
+        f"Sana Özel Sistem Numaran (ID): **`{u_code}`** | Şifreleme Koruma:"
+        " **SHA-256 Aktif**"
     )
 
     with st.form("settings_form"):
@@ -779,7 +766,7 @@ else:
         st.session_state.user["email"] = new_email.strip().lower()
         st.session_state.user["nickname"] = new_nick.strip()
         st.query_params["logged_email"] = new_email.strip().lower()
-        st.success("✅ Ayarlarınız şifrelenerek başarıyla güncellendi!")
+        st.success("✅ Ayarlarınız başarıyla güncellendi!")
         st.rerun()
 
   with tabs[3]:
