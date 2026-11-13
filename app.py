@@ -1,7 +1,7 @@
 """
 ================================================================================
 PROJECT: EduCore AI - Akıllı Yerel Yapay Zeka Stüdyosu
-VERSION: v2026.TrueAI.Core - Database Migration & Final Fix Edition
+VERSION: v2026.TrueAI.Core - Backward Compatible Login & Final Polish
 ================================================================================
 """
 
@@ -41,11 +41,10 @@ def init_db():
         )
     """)
 
-  # Eski veritabanlarında unique_code sütunu eksikse çökmeyi önlemek için güvenli ekleme:
   try:
     c.execute("ALTER TABLE users ADD COLUMN unique_code TEXT")
   except sqlite3.OperationalError:
-    pass  # Sütun zaten varsa hata verme, devam et
+    pass
 
   # Gruplar Tablosu
   c.execute("""
@@ -145,7 +144,7 @@ if "notes" not in st.session_state:
 if "last_material" not in st.session_state:
   st.session_state.last_material = (
       "Henüz resmi bir çalışma kağıdı üretilmedi. 'Yazılı Senaryoları' veya"
-      " 'Soru Üretici' sekmesinden materyal oluşturabilirsiniz."
+      " 'Soru Çöz & Üret' sekmesinden materyal oluşturabilirsiniz."
   )
 
 CURRICULUM = {
@@ -300,17 +299,31 @@ if not st.session_state.user:
 
       if st.button("Giriş Yap", type="primary"):
         if l_email and l_pass:
-          hashed_p = hash_password(l_pass)
           conn = sqlite3.connect(DB_PATH)
           c = conn.cursor()
           c.execute(
-              "SELECT * FROM users WHERE email = ? AND password = ?",
-              (l_email.strip().lower(), hashed_p),
+              "SELECT * FROM users WHERE email = ?", (l_email.strip().lower(),)
           )
           row = c.fetchone()
+
+          login_success = False
+          if row:
+            stored_password = row[2]
+            hashed_input = hash_password(l_pass)
+            # Geriye dönük uyumluluk: İster hashlenmiş olsun ister eski düz metin, kabul et
+            if stored_password == hashed_input or stored_password == l_pass:
+              login_success = True
+              # Eski düz metin şifreyi otomatik olarak güvenli hash formatına güncelle
+              if stored_password == l_pass:
+                c.execute(
+                    "UPDATE users SET password = ? WHERE id = ?",
+                    (hashed_input, row[0]),
+                )
+                conn.commit()
+
           conn.close()
 
-          if row:
+          if login_success:
             st.session_state.user = {
                 "id": row[0],
                 "email": row[1],
@@ -370,7 +383,8 @@ if not st.session_state.user:
             conn.close()
             st.success(
                 "✅ Kaydınız oluşturuldu! ID Numaranız: "
-                f"{unique_id_code}. Şimdi giriş yapabilirsiniz."
+                f"{unique_id_code}. Şimdi 'Oturum Aç' sekmesinden giriş"
+                " yapabilirsiniz."
             )
           except sqlite3.IntegrityError:
             st.error("❌ Bu Gmail adresi ile zaten bir hesap kayıtlı!")
