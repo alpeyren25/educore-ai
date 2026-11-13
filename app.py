@@ -418,54 +418,44 @@ def get_esila_response(query: str, nick: str, subj: str, grd: str) -> str:
       ]
   ):
     return (
-        f"🇬🇧 **Esila Ultra İngilizce Stüdyosu ({grd})**\n\n"
-        f"Kanka sorduğun **\"{query}\"** konusunu kafaya takma hiç, bende! Bak şimdi olayı şöyle özetleyeyim:\n\n"
-        "**Adım 1: Temel Mantığı Kapalım**\n"
-        "• İngilizcede bu tarz yapılar zaman akışını anlamamız için vardır. Gözünde büyütme sakın.\n\n"
-        "**Adım 2: Formül ve Özne Dağılımı**\n"
-        "• Tekil özneler (*I, He, She, It*) geçmişte **was** seçer; çoğul özneler ve *You* ise **were** alır.\n"
-        "• *Örnek:* **He was happy** (Mutluydu) vs **They were ready** (Hazırlardı).\n\n"
-        "**Adım 3: Pratik Taktik**\n"
-        "• Bunu ezberleme kanka; günlük hayatta cümle kurarken tekil/çoğul dengesine dikkat et yeter.\n\n"
-        f"💡 Nasıl, oturdu mu kafana {nick}? Başka takıldığın yer var mı?"
+        f"🇬🇧 **Esila Ultra İngilizce Stüdyosu ({grd})**\n\nKanka sorduğun"
+        f' "{query}" konusunu kafaya takma hiç, bende! Bak şimdi olayı şöyle'
+        " özetleyeyim:\n\n**Adım 1: Temel Mantığı Kapalım**\n• İngilizcede bu'
+        " tarz yapılar zaman akışını anlamamız için vardır. Gözünde büyütme"
+        " sakın.\n\n**Adım 2: Formül ve Özne Dağılımı**\n• Tekil özneler (*I, He,"
+        " She, It*) geçmişte **was** seçer; çoğul özneler ve *You* ise **were**"
+        " alır.\n• *Örnek:* **He was happy** (Mutluydu) vs **They were ready**"
+        " (Hazırlardı).\n\n**Adım 3: Pratik Taktik**\n• Bunu ezberleme kanka;"
+        f" günlük hayatta cümle kurarken tekil/çoğul dengesine dikkat et"
+        f" yeter.\n\n💡 Nasıl, oturdu mu kafana {nick}? Başka takıldığın yer var"
+        " mı?"
     )
 
   if "fizik" in subj.lower() or "fen" in subj.lower():
     return (
-        f"⚡ **Esila Ultra Fizik Atölyesi ({grd})**\n\n"
-        f"Kanka **\"{query}\"** dedin, hemen çözelim! Fizik ezber değil mantıktır, bak şöyle:\n\n"
-        "**Adım 1: Verilenleri Kenara Yazalım**\n"
-        "• Soruda verilen değerleri (kg, m/s, Newton vb.) alt alta yazıyoruz. Çözümün yarısı bitti bile.\n\n"
-        "**Adım 2: Doğru Formül**\n"
-        "• İlgili fizik kanununu veya formülü sahneye çağırıyoruz.\n\n"
-        "**Adım 3: İşlem ve Sonuç**\n"
-        "• Değerleri yerine koyup sadeleştiriyoruz. İşlem önceliğine dikkat ettin mi sonuç cebinde!\n\n"
-        f"💡 Fizik işte bu kadar kanka! Başka hangi soruyu parçalayalım {nick}?"
+        f"⚡ **Esila Ultra Fizik Atölyesi ({grd})**\n\nKanka sorduğun"
+        f' "{query}" konusunu çözelim! Fizik ezber değil mantıktır:\n\n**Adım'
+        " 1: Verilenleri Kenara Yazalım**\n• Soruda verilen değerleri alt alta"
+        " yazıyoruz.\n\n**Adım 2: Doğru Formül**\n• İlgili fizik kanununu"
+        " çağırıyoruz.\n\n**Adım 3: İşlem ve Sonuç**\n• Değerleri yerine koyup"
+        f" sadeleştiriyoruz.\n\n💡 Fizik işte bu kadar kanka! {nick}"
     )
 
   if "matematik" in subj.lower() or "geometri" in subj.lower():
     return (
-        f"📐 **Esila Ultra Matematik Çözüm Merkezi ({grd})**\n\n"
-        f"Kanka **\"{query}\"** konusunu mercek altına aldık. Kurallar çok net, adım adım gidelim:\n\n"
-        "**Adım 1: Bilinmeyene Harf Verelim**\n"
-        "• Problemi okuyoruz ve bulmak istediğimiz değere 'x' diyoruz.\n\n"
-        "**Adım 2: Denklemi Oluştur ve Çöz**\n"
-        "• Verilen oranları denkleme döküp eşitliğin her iki tarafını düzenliyoruz.\n\n"
-        "**Adım 3: Sağlama Yap**\n"
-        "• Sonucu yerine koyup kontrol ettin mi işlem tamamdır.\n\n"
-        f"💡 Düzenli yazarsan matematik daima kolaydır kanka! Devam edelim mi {nick}?"
+        f"📐 **Esila Ultra Matematik Çözüm Merkezi ({grd})**\n\nKanka"
+        f' "{query}" konusunu mercek altına aldık:\n\n**Adım 1: Bilinmeyene'
+        " Harf Verelim**\n• Problemi okuyup 'x' diyoruz.\n\n**Adım 2: Denklemi"
+        " Kur**\n• Verilen oranları denkleme döküyoruz.\n\n**Adım 3: Sonuç**\n•"
+        f" İşlem tamamdır kanka! {nick}"
     )
 
   return (
-      f"✨ **Esila Ultra AI — Adım Adım Analiz Paneli**\n\n"
-      f"Kanka **\"{query}\"** konusunu **{subj}** dersi için inceledim. Hiç merak etme, bunu birlikte çözeriz:\n\n"
-      "**1. Konunun Özü ve Temel Mantığı:**\n"
-      "• Asla ezber yok kanka! Mantığı kavradığın an tüm soruları çözersin.\n\n"
-      "**2. Adım Adım Uygulama:**\n"
-      "• Kuralları sırasıyla uygulayıp parçaları birleştiriyoruz.\n\n"
-      "**3. Sonuç:**\n"
-      "• İstediğimiz sonuca tertemiz ulaşıyoruz.\n\n"
-      f"💡 Nasıl, kafana yattı mı kanka {nick}? Başka neyi merak ediyorsun?"
+      f"✨ **Esila Ultra AI — Adım Adım Analiz Paneli**\n\nKanka"
+      f' "{query}" konusunu {subj} dersi için inceledim:\n\n**1. Konunun'
+      ' Özü:**\n• Ezber yok kanka, mantığı kavrayalım.\n\n**2. Adım Adım'
+      " Uygulama:**\n• Kuralları sırasıyla uyguluyoruz.\n\n**3. Sonuç:**\n•"
+      f" Tertemiz ulaşıyoruz.\n\n💡 Nasıl, kafana yattı mı kanka {nick}?"
   )
 
 
@@ -620,8 +610,29 @@ else:
 
   with app_tab1:
     if not st.session_state.messages:
-      st.session_state.messages = [{}]
-          "role" : "assistant",
-          "content": ()
+      st.session_state.messages.append({
+          "role": "assistant",
+          "content": (
               f"Selam {nick}! Ben **Esila**, kurumsal yapay zeka asistanın."
               f" **{cat} - {subj}** dersindeyiz. Sor bakalım ne istiyorsun?"
+          ),
+      })
+
+    for msg in st.session_state.messages:
+      with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+    if prompt := st.chat_input("Esila'ya dersle ilgili bir şey sor kanka..."):
+      st.session_state.messages.append({"role": "user", "content": prompt})
+      with st.chat_message("user"):
+        st.markdown(prompt)
+
+      response = get_esila_response(prompt, nick, subj, cat)
+      st.session_state.messages.append(
+          {"role": "assistant", "content": response}
+      )
+      with st.chat_message("assistant"):
+        st.markdown(response)
+
+  with app_tab2:
+    st.markdown("### 🤝 EduCore Sosyal Stüdyo & Çal
