@@ -420,7 +420,7 @@ def get_esila_response(query: str, nick: str, subj: str, grd: str) -> str:
     return (
         f"🇬🇧 **Esila Ultra İngilizce Stüdyosu ({grd})**\n\nKanka sorduğun"
         f' "{query}" konusunu kafaya takma hiç, bende! Bak şimdi olayı şöyle'
-        " özetleyeyim:\n\n**Adım 1: Temel Mantığı Kapalım**\n• İngilizcede bu'
+        " özetleyeyim:\n\n**Adım 1: Temel Mantığı Kapalım**\n• İngilizcede bu"
         " tarz yapılar zaman akışını anlamamız için vardır. Gözünde büyütme"
         " sakın.\n\n**Adım 2: Formül ve Özne Dağılımı**\n• Tekil özneler (*I, He,"
         " She, It*) geçmişte **was** seçer; çoğul özneler ve *You* ise **were**"
