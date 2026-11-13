@@ -205,7 +205,6 @@ def init_db():
         )
     """)
 
-  # 🧠 ESKİ ŞİFRELERİ HATIRLAMA (PASSWORD HISTORY TABLOSU)
   c.execute("""
         CREATE TABLE IF NOT EXISTS password_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -281,7 +280,6 @@ def init_db():
 
 init_db()
 
-# Arayüz Stilleri (Askeri Ultra Kırmızı/Koyu Tema)
 st.markdown(
     """
     <style>
@@ -380,9 +378,6 @@ CURRICULUM = {
 }
 
 
-# ===============================================================================
-# 🧠 ESİLA MASTER & "KANCA" SAMİMİ ADIM ADIM AÇIKLAMA MOTORU
-# ===============================================================================
 def get_esila_response(query: str, nick: str, subj: str, grd: str) -> str:
   user_code = (
       st.session_state.user["unique_code"]
@@ -478,9 +473,6 @@ def get_esila_response(query: str, nick: str, subj: str, grd: str) -> str:
   )
 
 
-# ===============================================================================
-# 1. GİRİŞ VE KAYIT EKRANI
-# ===============================================================================
 if not st.session_state.user:
   col1, col2, col3 = st.columns([1, 1.8, 1])
   with col2:
@@ -582,7 +574,6 @@ if not st.session_state.user:
                       str(datetime.date.today()),
                   ),
               )
-              # İlk şifreyi geçmiş tablosuna da kaydet
               c.execute(
                   "INSERT INTO password_history (user_code, password_hash,"
                   " password_salt, changed_at) VALUES (?, ?, ?, ?)",
@@ -602,9 +593,6 @@ if not st.session_state.user:
             except sqlite3.IntegrityError:
               st.error("❌ Bu Gmail adresiyle zaten bir hesap var kanka!")
 
-# ===============================================================================
-# 2. ANA KURUMSAL UYGULAMA EKRANI
-# ===============================================================================
 else:
   current_user = st.session_state.user
   nick = current_user["nickname"]
@@ -612,4 +600,27 @@ else:
 
   st.sidebar.markdown(f"### 👤 Kullanıcı: {nick}")
   st.sidebar.markdown(f"🆔 **ID Numarası:** `{u_code}`")
-  st.side
+  st.sidebar.info(f"🎓 **Seviye:** {current_user['grade']}")
+  st.sidebar.success("🛡️ **Çin Seddi:** Ultra 100k Aktif")
+
+  if st.sidebar.button("🚪 Güvenli Çıkış Yap"):
+    st.session_state.user = None
+    if "logged_email" in st.query_params:
+      del st.query_params["logged_email"]
+    st.rerun()
+
+  st.sidebar.markdown("---")
+  cat = st.sidebar.selectbox(
+      "📚 Eğitim Kademeniz:", list(CURRICULUM.keys()), index=2
+  )
+  subj = st.sidebar.selectbox("📘 Ders Seçimi:", CURRICULUM[cat], index=2)
+
+  app_tab1, app_tab2, app_tab3, app_tab4 = st.tabs([
+      "💬 Esila AI Asistan",
+      "👥 Sosyal Çalışma Grupları & Arkadaşlar",
+      "⚙️ Şifre Değiştir (Eski Şifre Hafızalı)",
+      "🛡️ Çin Seddi Güvenlik Logları (Audit)",
+  ])
+
+  with app_tab1:
+    if "messages" not in st.sess
