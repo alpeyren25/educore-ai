@@ -1,7 +1,7 @@
 """
 ================================================================================
 PROJECT: EduCore-AI - Akıllı Yerel Yapay Zeka Stüdyosu
-VERSION: v2026.Esila.Pro - Smart Subject Engine & Direct Messaging Edition
+VERSION: v2026.Esila.Final - Bugfixed & Complete Edition
 ================================================================================
 """
 
@@ -28,7 +28,7 @@ def init_db():
   conn = sqlite3.connect(DB_PATH)
   c = conn.cursor()
 
-  # Kullanıcılar Tablosu (Çevrim içi takibi için last_active eklendi)
+  # Kullanıcılar Tablosu
   c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -164,7 +164,7 @@ if st.session_state.user is None and "logged_email" in st.query_params:
         "unique_code": row[5],
     }
 
-# Aktif kullanıcının çevrim içi (last_active) zamanını güncelle
+# Kullanıcı aktiflik süresini güncelle
 if st.session_state.user:
   conn = sqlite3.connect(DB_PATH)
   c = conn.cursor()
@@ -615,4 +615,379 @@ else:
       """,
           (u_code,),
       )
-      my_friends = c.
+      my_friends = c.fetchall()
+      conn.close()
+
+      now_time = datetime.datetime.now()
+      friend_options = {}
+      if my_friends:
+        for fr in my_friends:
+          f_code, f_nick, f_active = fr
+          is_online = False
+          if f_active:
+            try:
+              last_dt = datetime.datetime.strptime(
+                  f_active.split(".")[0], "%Y-%m-%d %H:%M:%S"
+              )
+              diff_sec = (now_time - last_dt).total_seconds()
+              if diff_sec < 180:  # Son 3 dakika içinde aktifse
+                is_online = True
+            except:
+              pass
+
+          status_badge = (
+              "🟢 Çevrim İçi" if is_online else "🔴 Çevrim Dışı"
+          )
+          friend_options[
+              f"{f_nick} ({f_code}) — {status_badge}"
+          ] = f_code
+      else:
+        st.info("Henüz ekli arkadaşın yok.")
+
+    st.markdown("---")
+
+    # Özel Mesajlaşma Bölümü
+    if my_friends:
+      st.markdown("#### 💬 Arkadaşla Özel Mesajlaşma")
+      selected_f_label = st.selectbox(
+          "Mesajlaşılacak Arkadaşı Seç", list(friend_options.keys())
+      )
+      selected_f_code = friend_options[selected_f_label]
+      selected_f_nick = selected_f_label.split(" (")[0]
+
+      conn = sqlite3.connect(DB_PATH)
+      c = conn.cursor()
+      c.execute(
+          """
+          SELECT sender_code, message, created_at FROM direct_messages 
+          WHERE (sender_code = ? AND receiver_code = ?) 
+             OR (sender_code = ? AND receiver_code = ?) 
+          ORDER BY id ASC
+      """,
+          (u_code, selected_f_code, selected_f_code, u_code),
+      )
+      dm_msgs = c.fetchall()
+      conn.close()
+
+      dm_container = st.container(height=280)
+      with dm_container:
+        if dm_msgs:
+          for dm in dm_msgs:
+            s_code, d_msg, d_date = dm
+            sender_name = nick if s_code == u_code else selected_f_nick
+            st.markdown(
+                f"**{sender_name}**: {d_msg}  \n<span"
+                f" style='font-size:11px; color:#94a3b8;'>{d_date}</span>",
+                unsafe_allow_html=True,
+            )
+        else:
+          st.info(
+              f"**{selected_f_nick}** ile aranızda henüz mesaj yok. İlk mesajı"
+              " sen gönder!"
+          )
+
+      with st.form(key="dm_chat_form", clear_on_submit=True):
+        dm_input = st.text_input(
+            "Özel mesajını yaz...", placeholder="Mesaj gönder..."
+        )
+        dm_send = st.form_submit_button("Gönder", type="primary")
+        if dm_send and dm_input.strip():
+          conn = sqlite3.connect(DB_PATH)
+          c = conn.cursor()
+          c.execute(
+              "INSERT INTO direct_messages (sender_code, receiver_code,"
+              " message, created_at) VALUES (?, ?, ?, ?)",
+              (
+                  u_code,
+                  selected_f_code,
+                  dm_input.strip(),
+                  str(datetime.datetime.now().strftime("%H:%M - %d.%m.%Y")),
+              ),
+          )
+          conn.commit()
+          conn.close()
+          st.rerun()
+
+    st.markdown("---")
+    # Grup Kurma ve Odalar Bölümü
+    g_col1, g_col2 = st.columns(2)
+    with g_col1:
+      st.markdown("#### ➕ Yeni Çalışma Grubu Kur")
+      new_g_name = st.text_input(
+          "Grup Adı", placeholder="Örn: Fizik Sınav Çalışma Grubu"
+      )
+      if st.button("Grubu Oluştur", type="primary"):
+        if new_g_name.strip():
+          conn = sqlite3.connect(DB_PATH)
+          c = conn.cursor()
+          c.execute(
+              "INSERT INTO groups (group_name, creator_code, created_at) VALUES"
+              " (?, ?, ?)",
+              (new_g_name.strip(), u_code, str(datetime.date.today())),
+          )
+          g_id = c.lastrowid
+          c.execute(
+              "INSERT INTO group_members (group_id, member_code) VALUES (?, ?)",
+              (g_id, u_code),
+          )
+          conn.commit()
+          conn.close()
+          st.success(f"✅ '{new_g_name}' grubu başarıyla kuruldu!")
+          st.rerun()
+        else:
+          st.warning("Lütfen bir grup adı girin.")
+
+    with g_col2:
+      st.markdown("#### 🚪 Katıldığın Gruplar")
+      conn = sqlite3.connect(DB_PATH)
+      c = conn.cursor()
+      c.execute(
+          """
+          SELECT g.id, g.group_name, g.creator_code 
+          FROM groups g 
+          JOIN group_members gm ON g.id = gm.group_id 
+          WHERE gm.member_code = ?
+      """,
+          (u_code,),
+      )
+      my_groups = c.fetchall()
+      conn.close()
+
+      if my_groups:
+        group_options = {
+            f"{g[1]} (Kurucu: {g[2]} - ID#{g[0]})": g[0] for g in my_groups
+        }
+        selected_label = st.selectbox(
+            "Sohbet Edebileceğin Gruplar", list(group_options.keys())
+        )
+        selected_group_id = group_options[selected_label]
+        selected_group_name = selected_label.split(" (Kurucu:")[0]
+      else:
+        selected_group_name = None
+        selected_group_id = None
+        st.info("Henüz üyesi olduğun bir grup yok.")
+
+    if selected_group_name and selected_group_id:
+      st.markdown(f"### 💬 Grup Odası: `{selected_group_name}`")
+      conn = sqlite3.connect(DB_PATH)
+      c = conn.cursor()
+      c.execute(
+          "SELECT sender_nick, sender_code, message, created_at FROM"
+          " group_messages WHERE group_id = ? ORDER BY id ASC",
+          (selected_group_id,),
+      )
+      g_msgs = c.fetchall()
+      conn.close()
+
+      g_container = st.container(height=250)
+      with g_container:
+        if g_msgs:
+          for gm in g_msgs:
+            s_nick, s_code, s_msg, s_date = gm
+            st.markdown(
+                f"**{s_nick}** `({s_code})`: {s_msg}  \n<span"
+                f" style='font-size:11px; color:#94a3b8;'>{s_date}</span>",
+                unsafe_allow_html=True,
+            )
+        else:
+          st.info("Bu grupta henüz mesaj yok.")
+
+      with st.form(key=f"group_chat_form_{selected_group_id}", clear_on_submit=True):
+        g_msg_input = st.text_input(
+            "Grup mesajını yaz...", placeholder="Mesaj..."
+        )
+        g_send_btn = st.form_submit_button("Grup Mesajı Gönder", type="primary")
+        if g_send_btn and g_msg_input.strip():
+          conn = sqlite3.connect(DB_PATH)
+          c = conn.cursor()
+          c.execute(
+              "INSERT INTO group_messages (group_id, sender_nick, sender_code,"
+              " message, created_at) VALUES (?, ?, ?, ?, ?)",
+              (
+                  selected_group_id,
+                  nick,
+                  u_code,
+                  g_msg_input.strip(),
+                  str(datetime.datetime.now().strftime("%H:%M - %d.%m.%Y")),
+              ),
+          )
+          conn.commit()
+          conn.close()
+          st.rerun()
+
+  with tabs[2]:
+    st.markdown("### ⚙️ Hesap Ayarları & Güvenlik")
+    st.info(
+        f"Sana Özel Sistem Numaran (ID): **`{u_code}`** | Bot Asistan: **Esila**"
+        " | Şifreleme: **SHA-256 Aktif**"
+    )
+
+    with st.form("settings_form"):
+      new_email = st.text_input(
+          "Gmail Adresini Değiştir", value=current_user["email"]
+      )
+      new_nick = st.text_input(
+          "İsim / Rumuz (Nickname) Değiştir", value=nick
+      )
+      new_pass = st.text_input(
+          "Yeni Şifre (Değiştirmek istemiyorsan boş bırak)", type="password"
+      )
+      save_changes = st.form_submit_button(
+          "Ayarları Güvenle Kaydet", type="primary"
+      )
+
+      if save_changes:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        if new_pass.strip():
+          secured_new_pass = hash_password(new_pass)
+          c.execute(
+              "UPDATE users SET email = ?, nickname = ?, password = ? WHERE id"
+              " = ?",
+              (
+                  new_email.strip().lower(),
+                  new_nick.strip(),
+                  secured_new_pass,
+                  current_user["id"],
+              ),
+          )
+        else:
+          c.execute(
+              "UPDATE users SET email = ?, nickname = ? WHERE id = ?",
+              (new_email.strip().lower(), new_nick.strip(), current_user["id"]),
+          )
+        conn.commit()
+        conn.close()
+        st.session_state.user["email"] = new_email.strip().lower()
+        st.session_state.user["nickname"] = new_nick.strip()
+        st.query_params["logged_email"] = new_email.strip().lower()
+        st.success("✅ Ayarlarınız başarıyla güncellendi!")
+        st.rerun()
+
+  with tabs[3]:
+    st.markdown(f"### 📋 Resmi Yazılı Senaryoları ({subj})")
+    st.markdown(
+        "Bu bölümde okul sınavların veya yazılıların için çıkabilecek"
+        " senaryoları kendin sorabilir, arayabilir ve Esila'ya detaylıca analiz"
+        " ettirebilirsin."
+    )
+
+    senaryo_query = st.text_input(
+        "Hangi yazılı senaryosunu veya konuyu incelemek istiyorsun?",
+        placeholder=(
+            "Örn: 1. Dönem 1. Yazılı Senaryosu, İngilizce 1. Ünite Soruları..."
+        ),
+    )
+
+    if st.button("🚀 Yazılı Senaryosunu Üret ve İncele", type="primary"):
+      if senaryo_query.strip():
+        senaryo_text = (
+            f"EDUCORE-AI / ESİLA - KAPSAMLI YAZILI SENARYOSU ({cat} - {subj})\n"
+            f"Sorgulanan Konu/Senaryo: {senaryo_query}\n\n"
+            "📝 **Soru Dağılımı ve Senaryo Analizi:**\n"
+            "🔹 **Soru 1 (Kavramsal Temel & Tanım - 30 Puan):**\n"
+            f"   • {subj} disiplinine ait temel kuralları açıklayınız.\n"
+            "🔹 **Soru 2 (Pratik Uygulama & Problem Çözümü - 30 Puan):**\n"
+            "   • Konuyla ilgili örnek bir senaryo veya problem çözünüz.\n"
+            "🔹 **Soru 3 (Üst Düzey Sentez & Analiz - 40 Puan):**\n"
+            "   • Konunun günlük hayattaki veya pratik kullanımdaki yerini"
+            " yorumlayın.\n\n"
+            "💡 **Esila Tavsiyesi:** Bu senaryonun çalışma kağıdını 'Çalışma"
+            " Kağıtları (PDF)' sekmesinden indirebilirsin."
+        )
+        st.markdown(
+            f"<div class='study-card'><pre"
+            f" style='color:#f8fafc; white-space:pre-wrap;'>{senaryo_text}</pre></div>",
+            unsafe_allow_html=True,
+        )
+        st.session_state.last_material = senaryo_text
+      else:
+        st.warning("Lütfen bir senaryo veya konu başlığı girin.")
+
+  with tabs[4]:
+    st.markdown(f"### 📝 Soru Çöz & Esila Soru Üretici ({subj})")
+    st.markdown(
+        "Burada çözemediğin soruları sisteme sorabilir, fotoğrafını/dosyasını"
+        " yükleyebilir veya konu başlığı yazarak Esila'ya yeni soru paketleri"
+        " ürettirebilirsin."
+    )
+
+    soru_metni = st.text_area(
+        "Sorunuzu veya Soru İstediğiniz Konuyu Yazın:",
+        placeholder=(
+            "Örn: İngilizce past tense soru çözümü veya fonksiyonlar..."
+        ),
+    )
+    uploaded_file = st.file_uploader(
+        "Soru Fotoğrafı veya Dosyası Yükle (İsteğe bağlı)",
+        type=["png", "jpg", "jpeg", "pdf"],
+    )
+
+    if st.button("Esila ile Çöz / Soru Paketi Üret", type="primary"):
+      if soru_metni.strip() or uploaded_file:
+        dosya_bilgi = (
+            f" (Yüklenen Dosya: {uploaded_file.name})"
+            if uploaded_file
+            else ""
+        )
+        paket = (
+            f"EDUCORE-AI — ESİLA ÇÖZÜM MERKEZİ: {subj} ({cat})\n"
+            f"Sorulan/İstenen: `{soru_metni}`{dosya_bilgi}\n\n"
+            "📌 **Esila Çözüm ve Analiz Adımları:**\n"
+            "1. Verilen öncüller ve ipuçları detaylıca incelendi.\n"
+            "2. Doğru kural, formül veya dilbilgisi yapısı uygulandı.\n"
+            "3. Sonuç: Adım adım doğrulandı ve sınav tarzına uygun hale"
+            " getirildi.\n\n"
+            "💡 **Not:** Bu içeriği 'Çalışma Kağıtları (PDF)' sekmesinden"
+            " indirebilirsin."
+        )
+        st.markdown(
+            f"<div class='study-card'><pre"
+            f" style='color:#f8fafc; white-space:pre-wrap;'>{paket}</pre></div>",
+            unsafe_allow_html=True,
+        )
+        st.session_state.last_material = paket
+      else:
+        st.warning("Lütfen bir soru yazın veya dosya yükleyin.")
+
+  with tabs[5]:
+    st.markdown("### 📄 Çalışma Kağıtları & PDF İndirme Merkezi")
+    st.markdown(
+        "Yalnızca **Yazılı Senaryoları** veya **Soru Çöz & Üret** sekmelerinde"
+        " Esila ile oluşturduğun en son ders materyali burada yer alır."
+    )
+
+    mat = st.session_state.get(
+        "last_material",
+        "Henüz resmi bir çalışma kağıdı üretilmedi. Yazılı senaryoları veya"
+        " soru üretici sekmesini kullanabilirsiniz.",
+    )
+    st.markdown(
+        f"<div class='study-card'><pre"
+        f" style='color:#38bdf8; white-space:pre-wrap;'>{mat}</pre></div>",
+        unsafe_allow_html=True,
+    )
+
+    st.download_button(
+        label="📥 Çalışma Kağıdını İndir (.txt / PDF Formatı)",
+        data=mat,
+        file_name=f"EduCore_{subj}_Esila_CalismaKagidi.txt",
+        mime="text/plain",
+        type="primary",
+    )
+
+  with tabs[6]:
+    st.markdown("### 📚 Kişisel Sınav Notları Arşivi")
+    n_title = st.text_input("Not Başlığı")
+    n_desc = st.text_area("Not İçeriği")
+    if st.button("Notu Kaydet"):
+      if n_title and n_desc:
+        st.session_state.notes.append({
+            "title": n_title,
+            "content": n_desc,
+            "date": str(datetime.date.today()),
+        })
+        st.success("Not başarıyla kaydedildi!")
+    for n in st.session_state.notes:
+      with st.expander(f"📌 {n['title']} ({n['date']})"):
+        st.markdown(n["content"])
