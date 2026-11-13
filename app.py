@@ -622,6 +622,6 @@ else:
     if not st.session_state.messages:
       st.session_state.messages = [{
           "role": "assistant",
-          "content": (
+          "content": ()
               f"Selam {nick}! Ben **Esila**, kurumsal yapay zeka asistanın."
               f" **{cat} - {subj}** dersindeyiz. Sor bakalım ne istiyorsun?"
