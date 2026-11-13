@@ -280,6 +280,12 @@ def init_db():
 
 init_db()
 
+# Oturum Durumu Başlangıç Tanımları (Hata Önleyici)
+if "user" not in st.session_state:
+  st.session_state.user = None
+if "messages" not in st.session_state:
+  st.session_state.messages = []
+
 st.markdown(
     """
     <style>
@@ -300,9 +306,6 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-
-if "user" not in st.session_state:
-  st.session_state.user = None
 
 if st.session_state.user is None and "logged_email" in st.query_params:
   saved_email = st.query_params["logged_email"]
@@ -618,9 +621,4 @@ else:
   app_tab1, app_tab2, app_tab3, app_tab4 = st.tabs([
       "💬 Esila AI Asistan",
       "👥 Sosyal Çalışma Grupları & Arkadaşlar",
-      "⚙️ Şifre Değiştir (Eski Şifre Hafızalı)",
-      "🛡️ Çin Seddi Güvenlik Logları (Audit)",
-  ])
-
-  with app_tab1:
-    'if "messages" not in st.sess'
+      "⚙️ Şifre Değiştir (Es
