@@ -635,4 +635,4 @@ else:
         st.markdown(response)
 
   with app_tab2:
-    st.markdown("### 🤝 EduCore Sosyal Stüdyo & Çal)
+    st.markdown("### 🤝 EduCore Sosyal Stüdyo & Çal")
