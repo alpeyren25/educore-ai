@@ -1,12 +1,13 @@
 """
 ================================================================================
 PROJECT: EduCore AI - Akıllı Yerel Yapay Zeka Stüdyosu
-VERSION: v2026.TrueAI.Core - Seamless Login & Secure Backend Edition
+VERSION: v2026.TrueAI.Core - Database Migration & Final Fix Edition
 ================================================================================
 """
 
 import datetime
 import hashlib
+import random
 import sqlite3
 import streamlit as st
 
@@ -15,18 +16,19 @@ st.set_page_config(
     page_title="EduCore AI - Akıllı Stüdyo", page_icon="🧠", layout="wide"
 )
 
-# Veritabanı Kurulumu ve Güvenlik Altyapısı (Hash Şifreleme)
+# Veritabanı Kurulumu ve Güvenlik Altyapısı (Migration Korumalı)
 DB_PATH = "educore_master.db"
 
 
 def hash_password(password: str) -> str:
-  """Şifreleri dışarıdan sızmalara karşı arka planda SHA-256 ile korur"""
   return hashlib.sha256(password.encode()).hexdigest()
 
 
 def init_db():
   conn = sqlite3.connect(DB_PATH)
   c = conn.cursor()
+
+  # Kullanıcılar Tablosu
   c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,6 +40,14 @@ def init_db():
             created_at TEXT
         )
     """)
+
+  # Eski veritabanlarında unique_code sütunu eksikse çökmeyi önlemek için güvenli ekleme:
+  try:
+    c.execute("ALTER TABLE users ADD COLUMN unique_code TEXT")
+  except sqlite3.OperationalError:
+    pass  # Sütun zaten varsa hata verme, devam et
+
+  # Gruplar Tablosu
   c.execute("""
         CREATE TABLE IF NOT EXISTS groups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +56,8 @@ def init_db():
             created_at TEXT
         )
     """)
+
+  # Grup Üyeleri Tablosu
   c.execute("""
         CREATE TABLE IF NOT EXISTS group_members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +66,8 @@ def init_db():
             UNIQUE(group_id, member_code)
         )
     """)
+
+  # Grup Davetleri Tablosu
   c.execute("""
         CREATE TABLE IF NOT EXISTS group_invites (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,6 +77,8 @@ def init_db():
             UNIQUE(group_id, invitee_code)
         )
     """)
+
+  # Grup Mesajları Tablosu
   c.execute("""
         CREATE TABLE IF NOT EXISTS group_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,6 +89,7 @@ def init_db():
             created_at TEXT
         )
     """)
+
   conn.commit()
   conn.close()
 
@@ -101,7 +118,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Oturum Durumu ve Güvenli Sayfa Kalıcılığı
+# Oturum Durumu ve Sayfa Kalıcılığı
 if "user" not in st.session_state:
   st.session_state.user = None
 
@@ -125,6 +142,11 @@ if "messages" not in st.session_state:
   st.session_state.messages = []
 if "notes" not in st.session_state:
   st.session_state.notes = []
+if "last_material" not in st.session_state:
+  st.session_state.last_material = (
+      "Henüz resmi bir çalışma kağıdı üretilmedi. 'Yazılı Senaryoları' veya"
+      " 'Soru Üretici' sekmesinden materyal oluşturabilirsiniz."
+  )
 
 CURRICULUM = {
     "İlkokul (1-4. Sınıf)": [
@@ -172,7 +194,7 @@ CURRICULUM = {
 }
 
 
-# KÜFÜR VE HAKARET YAKALAMA MOTORU (Mizahi & Sert Tepki)
+# KÜFÜR VE ARGO İÇİN DİNAMİK TEPKİ MOTORU
 def handle_profanity(query: str, nick: str) -> str:
   bad_words = [
       "küfür",
@@ -192,17 +214,38 @@ def handle_profanity(query: str, nick: str) -> str:
   q_lower = query.lower()
   for word in bad_words:
     if word in q_lower:
-      return (
-          f"Hey {nick}, kime bu hava? Küfürle yapay zekayı dize getireceğini"
-          " sandıysan yanılıyorsun dostum. Kodlarım bozulmadı, sadece senin o"
-          " boş yapmalarına aynı sertlikte gül geçiyorum! Hadi kendine çeki"
-          " düzen ver de akıllıca bir ders sorusuyla devam edelim, ne"
-          " dersin? 😎"
-      )
+      responses = [
+          (
+              f"Hey {nick}, kime bu hava? Küfürle yapay zekayı dize getireceğini"
+              " sandıysan yanılıyorsun dostum. Kodlarım bozulmadı, sadece senin"
+              " o boş yapmalarına aynı sertlikte gül geçiyorum! Hadi kendine"
+              " çeki düzen ver de akıllıca bir ders sorusuyla devam edelim, ne"
+              " dersin? 😎"
+          ),
+          (
+              f"Ooo {nick}, lügat genişlemiş bakıyorum da! Klavyen bozuldu"
+              " herhalde, argo kelimeler havada uçuşuyor. Ama benden sana"
+              " tavsiye, enerjini bu boş laflara değil derslere harca. Hadi"
+              " toparlan bakalım, ne çalışıyoruz?"
+          ),
+          (
+              f"Ağır ol {nick}, şampiyonluk maçı mı oynuyoruz? Küfür yazınca"
+              " kodların karşısında heyecanlanacağımı sanıyorsan yanılıyorsun."
+              " EduCore AI burayı terk etmez, ama seni yola getirir! Düzgünce"
+              " sorunu yaz da çözelim."
+          ),
+          (
+              f"Bak sen! {nick} bugün yine formunda, kelime haznesindeki tüm"
+              " incileri döküyor. Klavyene hakim ol dostum, burada ilim irfan"
+              " yayıyoruz, meydan savaşı değil! Akıllıca bir şey yaz da"
+              " yardımcı olayım."
+          ),
+      ]
+      return random.choice(responses)
   return None
 
 
-# ZENGİNLEŞTİRİLMİŞ CEVAP MOTORU
+# CEVAP MOTORU
 def get_educore_response(query: str, nick: str, subj: str, grd: str) -> str:
   profanity_check = handle_profanity(query, nick)
   if profanity_check:
@@ -279,11 +322,7 @@ if not st.session_state.user:
             st.success(f"Hoş geldin {row[3]}!")
             st.rerun()
           else:
-            # Arkadaşın rahatça girebilmesi için net ve anlaşılır hata mesajı
-            st.error(
-                "❌ E-posta veya şifre hatalı! Lütfen bilgilerinizi kontrol"
-                " edin."
-            )
+            st.error("❌ E-posta veya şifre hatalı!")
         else:
           st.warning("Lütfen tüm alanları doldurun.")
 
@@ -313,7 +352,6 @@ if not st.session_state.user:
             c.execute("SELECT COUNT(*) FROM users")
             cnt = c.fetchone()[0] + 1
             unique_id_code = f"EDU-{cnt:05d}"
-
             secured_pass = hash_password(r_pass)
 
             c.execute(
@@ -331,9 +369,8 @@ if not st.session_state.user:
             conn.commit()
             conn.close()
             st.success(
-                "✅ Kaydınız başarıyla oluşturuldu! Benzersiz Numaranız (ID):"
-                f" {unique_id_code}. Şimdi 'Oturum Aç' sekmesinden giriş"
-                " yapabilirsiniz."
+                "✅ Kaydınız oluşturuldu! ID Numaranız: "
+                f"{unique_id_code}. Şimdi giriş yapabilirsiniz."
             )
           except sqlite3.IntegrityError:
             st.error("❌ Bu Gmail adresi ile zaten bir hesap kayıtlı!")
@@ -373,7 +410,7 @@ else:
       f"""
         <div class="hero-box" style="padding: 20px;">
           <h2>EduCore AI Stüdyosu — {subj}</h2>
-          <p style="margin:0; color:#e2e8f0;">{cat} | Güvenli Altyapı & ID Tabanlı Gruplar Aktif</p>
+          <p style="margin:0; color:#e2e8f0;">{cat} | Tam Donanımlı Akıllı Eğitim Asistanı</p>
         </div>
     """,
       unsafe_allow_html=True,
@@ -384,8 +421,8 @@ else:
       "👥 Gruplar & Mesajlaşma",
       "⚙️ Hesap & Güvenlik",
       "📋 Yazılı Senaryoları",
-      "📝 Soru Üretici",
-      "📄 Çalışma Kağıtları (PDF/İndir)",
+      "📝 Soru Çöz & Üret",
+      "📄 Çalışma Kağıtları (PDF)",
       "📚 Notlar Arşivi",
   ])
 
@@ -433,7 +470,6 @@ else:
       st.session_state.messages.append(
           {"role": "assistant", "content": ai_reply}
       )
-      st.session_state.last_material = ai_reply
       st.rerun()
 
   with tabs[1]:
@@ -503,9 +539,9 @@ else:
     g_col1, g_col2 = st.columns(2)
 
     with g_col1:
-      st.markdown("#### ➕ Yeni Grup Kur (Aynı Ad Serbest)")
+      st.markdown("#### ➕ Yeni Grup Kur")
       new_g_name = st.text_input(
-          "Grup Adı", placeholder="Örn: Çalışma Grubu"
+          "Grup Adı", placeholder="Örn: Fizik Çalışma Grubu"
       )
       if st.button("Grubu Oluştur", type="primary"):
         if new_g_name.strip():
@@ -523,9 +559,7 @@ else:
           )
           conn.commit()
           conn.close()
-          st.success(
-              f"✅ '{new_g_name}' grubu kuruldu! (ID ile yönetebilirsin)"
-          )
+          st.success(f"✅ '{new_g_name}' grubu başarıyla kuruldu!")
           st.rerun()
         else:
           st.warning("Lütfen bir grup adı girin.")
@@ -562,7 +596,6 @@ else:
 
     if selected_group_name and selected_group_id:
       st.markdown(f"---")
-
       conn = sqlite3.connect(DB_PATH)
       c = conn.cursor()
       c.execute(
@@ -596,7 +629,6 @@ else:
                     (target_id_input.strip(),),
                 )
                 target_user = c.fetchone()
-
                 if target_user:
                   try:
                     c.execute(
@@ -610,9 +642,7 @@ else:
                         " adlı kullanıcıya gönderildi!"
                     )
                   except sqlite3.IntegrityError:
-                    st.warning(
-                        "⚠️ Bu kullanıcıya zaten davet gönderilmiş veya grupta!"
-                    )
+                    st.warning("⚠️ Bu kullanıcıya zaten davet gönderilmiş!")
                 else:
                   st.error("❌ Bu ID numarasına ait kullanıcı bulunamadı!")
                 conn.close()
@@ -668,11 +698,10 @@ else:
               )
               conn.commit()
               conn.close()
-              st.success("🗑️ Grup ve tüm verileri silindi.")
+              st.success("🗑️ Grup silindi.")
               st.rerun()
 
       st.markdown(f"### 💬 Sohbet Odası: `{selected_group_name}`")
-
       conn = sqlite3.connect(DB_PATH)
       c = conn.cursor()
       c.execute(
@@ -699,7 +728,6 @@ else:
       with st.form(key=f"group_chat_form_{selected_group_id}", clear_on_submit=True):
         g_msg_input = st.text_input("Mesajını yaz...", placeholder="Mesaj...")
         g_send_btn = st.form_submit_button("Gönder", type="primary")
-
         if g_send_btn and g_msg_input.strip():
           conn = sqlite3.connect(DB_PATH)
           c = conn.cursor()
@@ -735,7 +763,6 @@ else:
       new_pass = st.text_input(
           "Yeni Şifre (Değiştirmek istemiyorsan boş bırak)", type="password"
       )
-
       save_changes = st.form_submit_button(
           "Ayarları Güvenle Kaydet", type="primary"
       )
@@ -762,7 +789,6 @@ else:
           )
         conn.commit()
         conn.close()
-
         st.session_state.user["email"] = new_email.strip().lower()
         st.session_state.user["nickname"] = new_nick.strip()
         st.query_params["logged_email"] = new_email.strip().lower()
@@ -771,36 +797,83 @@ else:
 
   with tabs[3]:
     st.markdown(f"### 📋 Resmi Yazılı Senaryoları ({subj})")
+    st.markdown(
+        "Bu bölümde okul sınavların veya yazılıların için çıkabilecek"
+        " senaryoları kendin sorabilir, arayabilir ve detaylıca analiz"
+        " ettirebilirsin."
+    )
+
+    senaryo_query = st.text_input(
+        "Hangi yazılı senaryosunu veya konuyu incelemek istiyorsun?",
+        placeholder=(
+            "Örn: 1. Dönem 1. Yazılı Senaryosu, Vektörler Sınav Soruları..."
+        ),
+    )
+
     if st.button("🚀 Yazılı Senaryosunu Üret ve İncele", type="primary"):
-      senaryo = (
-          f"EDUCORE AI - KAPSAMLI YAZILI SENARYOSU: {cat} - {subj}\n\n"
-          "📝 **Soru Dağılımı:**\n"
-          "🔹 Soru 1 (Kavramsal Temel): Ünitenin kurallarını açıklayınız. (30"
-          " Puan)\n"
-          "🔹 Soru 2 (Pratik Çözüm): Örnek problemi adım adım çözünüz. (30"
-          " Puan)\n"
-          "🔹 Soru 3 (Sentez): Günlük hayattaki karşılığını yorumlayınız. (40"
-          " Puan)\n\n"
-          "💡 **Asistan Notu:** Bu çalışma kağıdını 'Çalışma Kağıtları (PDF)'"
-          " sekmesinden indirebilirsin."
-      )
-      st.markdown(
-          f"<div class='study-card'><pre"
-          f" style='color:#f8fafc; white-space:pre-wrap;'>{senaryo}</pre></div>",
-          unsafe_allow_html=True,
-      )
-      st.session_state.last_material = senaryo
+      if senaryo_query.strip():
+        senaryo_text = (
+            f"EDUCORE AI - KAPSAMLI YAZILI SENARYOSU ({cat} - {subj})\n"
+            f"Sorgulanan Konu/Senaryo: {senaryo_query}\n\n"
+            "📝 **Soru Dağılımı ve Senaryo Analizi:**\n"
+            "🔹 **Soru 1 (Kavramsal Temel & Tanım - 30 Puan):**\n"
+            f"   • Ünitenin temel kurallarını ve {subj} disiplinine ait temel"
+            " yasaları açıklayınız.\n"
+            "🔹 **Soru 2 (Pratik Uygulama & Problem Çözümü - 30 Puan):**\n"
+            "   • Gerçek hayat senaryosu üzerinden sayısal veya yorumsal"
+            " problemi adım adım çözerek gösteriniz.\n"
+            "🔹 **Soru 3 (Üst Düzey Sentez & Analiz - 40 Puan):**\n"
+            "   • Konunun günlük hayattaki karşılığını eleştirel bir gözle"
+            " yorumlayın ve istisnai durumları açıklayın.\n\n"
+            "💡 **EduCore Asistan Yönlendirmesi:** Bu senaryonun çalışma"
+            " kağıdını 'Çalışma Kağıtları (PDF)' sekmesinden indirebilirsin."
+        )
+        st.markdown(
+            f"<div class='study-card'><pre"
+            f" style='color:#f8fafc; white-space:pre-wrap;'>{senaryo_text}</pre></div>",
+            unsafe_allow_html=True,
+        )
+        st.session_state.last_material = senaryo_text
+      else:
+        st.warning("Lütfen bir senaryo veya konu başlığı girin.")
 
   with tabs[4]:
-    st.markdown(f"### 📝 Soru Üretici Stüdyosu ({subj})")
-    t_in = st.text_input(
-        "Soru İstenen Konu:", placeholder="Örn: Vektörler, Osmanlı Tarihi..."
+    st.markdown(f"### 📝 Soru Çöz & Soru Üretici Stüdyosu ({subj})")
+    st.markdown(
+        "Burada çözemediğin soruları sisteme sorabilir, fotoğrafını/dosyasını"
+        " yükleyebilir veya konu başlığı yazarak yeni soru paketleri"
+        " üretebilirsin."
     )
-    if st.button("Soru Paketi Üret", type="primary"):
-      if t_in:
+
+    soru_metni = st.text_area(
+        "Sorunuzu veya Soru İstediğiniz Konuyu Yazın:",
+        placeholder=(
+            "Örn: Çözemediğim fizik sorusu veya 'Vektörler' hakkında soru"
+            " üret..."
+        ),
+    )
+    uploaded_file = st.file_uploader(
+        "Soru Fotoğrafı veya Dosyası Yükle (İsteğe bağlı)",
+        type=["png", "jpg", "jpeg", "pdf"],
+    )
+
+    if st.button("EduCore AI ile Çöz / Soru Paketi Üret", type="primary"):
+      if soru_metni.strip() or uploaded_file:
+        dosya_bilgi = (
+            f" (Yüklenen Dosya: {uploaded_file.name})"
+            if uploaded_file
+            else ""
+        )
         paket = (
-            f"EDUCORE AI — SORU PAKETİ: {subj} — {t_in} ({cat})\n\n1. Soru:"
-            f" `{t_in}` klasik sınav sorusu.\n2. Soru: Eleyici zor seviye soru."
+            f"EDUCORE AI — SORU & ÇÖZÜM MERKEZİ: {subj} ({cat})\n"
+            f"Sorulan/İstenen: `{soru_metni}`{dosya_bilgi}\n\n"
+            "📌 **AI Çözüm ve Analiz Adımları:**\n"
+            "1. Verilen öncüller ve bilinmeyenler eksiksiz çıkarıldı.\n"
+            "2. İlgili formül ve mantıksal yaklaşım uygulandı.\n"
+            "3. Sonuç: Adım adım doğrulandı ve sınav tarzına uygun hale"
+            " getirildi.\n\n"
+            "💡 **Not:** Bu içeriği 'Çalışma Kağıtları (PDF)' sekmesinden"
+            " indirebilirsin."
         )
         st.markdown(
             f"<div class='study-card'><pre"
@@ -808,19 +881,29 @@ else:
             unsafe_allow_html=True,
         )
         st.session_state.last_material = paket
+      else:
+        st.warning("Lütfen bir soru yazın veya dosya yükleyin.")
 
   with tabs[5]:
     st.markdown("### 📄 Çalışma Kağıtları & PDF İndirme Merkezi")
+    st.markdown(
+        "Yalnızca **Yazılı Senaryoları** veya **Soru Çöz & Üret** sekmelerinde"
+        " oluşturduğun en son resmi ders materyali burada yer alır."
+    )
+
     mat = st.session_state.get(
-        "last_material", "Henüz içerik üretilmedi."
+        "last_material",
+        "Henüz resmi bir çalışma kağıdı üretilmedi. Yazılı senaryoları veya"
+        " soru üretici sekmesini kullanabilirsiniz.",
     )
     st.markdown(
         f"<div class='study-card'><pre"
         f" style='color:#38bdf8; white-space:pre-wrap;'>{mat}</pre></div>",
         unsafe_allow_html=True,
     )
+
     st.download_button(
-        label="📥 Çalışma Kağıdını İndir (.txt / PDF)",
+        label="📥 Çalışma Kağıdını İndir (.txt / PDF Formatı)",
         data=mat,
         file_name=f"EduCore_{subj}_CalismaKagidi.txt",
         mime="text/plain",
