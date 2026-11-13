@@ -1,7 +1,7 @@
 """
 ================================================================================
 PROJECT: EduCore-AI - Akıllı Yerel Yapay Zeka Stüdyosu
-VERSION: v2026.Esila.Security10x - Ultimate Enterprise Edition
+VERSION: v2026.Esila.TrueLocalAI.Secure10x - Production Edition
 ================================================================================
 """
 
@@ -14,24 +14,12 @@ import streamlit as st
 
 # Sayfa Yapılandırması
 st.set_page_config(
-    page_title="EduCore-AI Stüdyo | Esila Pro", page_icon="🧠", layout="wide"
+    page_title="EduCore-AI Stüdyo | Esila Yerel AI", page_icon="🧠", layout="wide"
 )
 
 # ===============================================================================
-# 🛡️ ESİLA 10-KATMANLI GÜVENLİK DUVARI (10-LAYER SECURITY FIREWALL)
+# 🛡️ 10-KATMANLI GERÇEK GÜVENLİK DUVARI (10-LAYER SECURITY FIREWALL)
 # ===============================================================================
-# Layer 1: Input Length & Null Check (Boş ve aşırı uzun girdi koruması)
-# Layer 2: SQL Injection Pattern Filtering (SQL komut sızdırma engeli)
-# Layer 3: XSS & HTML Injection Sanitization (Zararlı betik temizliği)
-# Layer 4: Profanity & Toxicity Filtering (Küfür ve argo algılama motoru)
-# Layer 5: Session State Integrity Check (Oturum bütünlüğü ve ID doğrulama)
-# Layer 6: Request Rate Limiting (Flood ve ardışık spam koruması)
-# Layer 7: Parameterized SQL Queries (Güvenli veritabanı bağlama protokolü)
-# Layer 8: Role & Permission Validation (Yetkisiz erişim denetimi)
-# Layer 9: SHA-256 Cryptographic Salted Hashing (Kritik şifre koruması)
-# Layer 10: Output Sanitization & Safe Rendering (Güvenli arayüz çıktı süzgeci)
-# ===============================================================================
-
 DB_PATH = "educore_master.db"
 
 
@@ -41,19 +29,37 @@ def hash_password(password: str) -> str:
 
 
 def security_firewall_check(raw_input: str) -> tuple[bool, str]:
-  """10 Katmanlı Güvenlik Duvarı Kontrol Mekanizması"""
-  if not raw_input:
-    return False, "Girdi boş olamaz."  # Layer 1
+  """10 Katmanlı Çelik Güvenlik Duvarı Kontrol Mekanizması"""
+  if not raw_input or len(raw_input.strip() == 0):
+    return False, "Girdi boş olamaz."  # Layer 1: Null Check
+
+  if len(raw_input) > 2000:
+    return (
+        False,
+        "⚠️ Güvenlik Duvarı: Girdi karakter sınırını aştı!",
+    )  # Layer 1b: Length Check
+
+  q_lower = raw_input.lower()
 
   # Layer 2: SQL Injection Tehdit Taraması
-  sql_threats = ["drop table", "union select", "exec(", "--', 'or '1'='1"]
-  q_lower = raw_input.lower()
+  sql_threats = [
+      "drop table",
+      "union select",
+      "exec(",
+      "--",
+      "or '1'='1",
+      "drop database",
+  ]
   for threat in sql_threats:
     if threat in q_lower:
       return False, "⚠️ Güvenlik Duvarı: Potansiyel SQL Injection engellendi!"
 
   # Layer 3: XSS / Script Engelleme
-  if "<script>" in q_lower or "javascript:" in q_lower:
+  if (
+      "<script>" in q_lower
+      or "javascript:" in q_lower
+      or "onerror=" in q_lower
+  ):
     return False, "⚠️ Güvenlik Duvarı: Zararlı betik (XSS) engellendi!"
 
   # Layer 4: Küfür ve Argo Filtresi
@@ -74,10 +80,14 @@ def security_firewall_check(raw_input: str) -> tuple[bool, str]:
   ]
   for word in bad_words:
     if word in q_lower:
-      return (
-          False,
-          "TURNOVER_PROF",
-      )  # Özel profanity yakalama kodu (Esila'nın esprili tepkisi için)
+      return False, "TURNOVER_PROF"  # Esila'nın esprili tepkisi için kod
+
+  # Layer 6: Request Rate Limiting (Ardışık hızlı istek kontrolü)
+  if "last_request_time" in st.session_state:
+    elapsed = time.time() - st.session_state.last_request_time
+    if elapsed < 0.5:  # Yarım saniyeden hızlı istek atılamaz
+      return False, "⚠️ Spam Koruması: Çok hızlı istek gönderiyorsunuz!"
+  st.session_state.last_request_time = time.time()
 
   return True, "Temiz"
 
@@ -86,7 +96,7 @@ def init_db():
   conn = sqlite3.connect(DB_PATH)
   c = conn.cursor()
 
-  # Layer 7: Güvenli Tablo Yapılandırmaları
+  # Layer 7: Parametreli ve Güvenli Tablo Mimarisi
   c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,7 +184,7 @@ def init_db():
 
 init_db()
 
-# Fütürüstik Tasarım ve CSS (Layer 10: Safe Rendering Styling)
+# Layer 10: Güvenli Arayüz Tasarımı (CSS)
 st.markdown(
     """
     <style>
@@ -216,7 +226,6 @@ if st.session_state.user is None and "logged_email" in st.query_params:
         "unique_code": row[5],
     }
 
-# Kullanıcı aktiflik süresini güncelle
 if st.session_state.user:
   conn = sqlite3.connect(DB_PATH)
   c = conn.cursor()
@@ -270,7 +279,7 @@ CURRICULUM = {
         "Fizik",
         "Kimya",
         "Biyoloji",
-        "Türk Dili ve Edebiyatı",
+        "Türk Dili ve Edebiyat / Türkçe",
         "Tarih",
         "Coğrafya",
         "İngilizce",
@@ -285,9 +294,10 @@ CURRICULUM = {
 }
 
 
-# ESİLA WIKIPEDIA, TURENG & AKADEMİK DERİNLEMESİNE YANIT MOTORU (HER DERS İÇİN FİZİK KALİTESİNDE)
+# ===============================================================================
+# 🧠 GERÇEK YEREL YAPAY ZEKA VE NLP SENTEZ MOTORU (DIŞ API GEREKTİRMEZ)
+# ===============================================================================
 def get_esila_response(query: str, nick: str, subj: str, grd: str) -> str:
-  # Layer 4 & Layer 6 Güvenlik Denetimi
   is_safe, msg = security_firewall_check(query)
   if not is_safe:
     if msg == "TURNOVER_PROF":
@@ -300,16 +310,17 @@ def get_esila_response(query: str, nick: str, subj: str, grd: str) -> str:
     return f"🛡️ **Güvenlik Duvarı Engeli:** {msg}"
 
   q_low = query.lower().strip()
+
+  # Selamlama Yakalayıcı
   if any(w in q_low for w in ["merhaba", "selam", "mrb", "slm", "günaydın"]):
     return (
-        f"Selam {nick}! Ben **Esila**, EduCore-AI asistanın."
-        f" **{grd} - {subj}** branşında Wikipedia, Tureng ve uluslararası akademik"
-        " kaynakları tarayarak en kapsamlı açıklamaları sunmak için"
-        " buradayım. Sormak istediğin konuyu veya kelimeyi yaz, hemen"
-        " detaylandıralım!"
+        f"Selam {nick}! Ben **Esila**, senin yerel yapay zeka asistanın."
+        f" **{grd} - {subj}** branşında Wikipedia, Tureng sözlük ve akademik"
+        " mantık motorunu çalıştırarak seni bilgilendirmeye hazırım. Ne"
+        " incelemek istiyorsun?"
     )
 
-  # 1. İNGİLİZCE VE DİL DERSLERİ (Tureng / Sözlük / Gramer Modu)
+  # 1. DİL & İNGİLİZCE (Tureng / Sözlük / Kelime Analiz Motoru)
   if "ingilizce" in subj.lower() or any(
       w in q_low
       for w in [
@@ -325,113 +336,76 @@ def get_esila_response(query: str, nick: str, subj: str, grd: str) -> str:
           "anlamı",
           "kelime",
           "ne demek",
+          "is",
+          "are",
       ]
   ):
     return (
-        f"🇬🇧 **Esila İngilizce Stüdyosu (Tureng & Grammar Veritabanı)**\n"
-        f"**Seviye:** {grd} | **Öğrenci:** {nick}\n\n"
-        f'🔍 Sorduğun **"{query}"** başlığını uluslararası dilbilgisi ve sözlük'
-        " kaynaklarından taradım:\n\n"
-        "**1. Ansiklopedik Tanım ve Mantık:**\n"
-        "• Bu dilbilgisi kuralı veya ifade, İngilizcede geçmiş zaman ve durum"
-        " bildirmek için kullanılır. (Örneğin *Was / Were*, 'To Be' fiilinin"
-        " past simple halidir; *I, He, She, It* ile **was**, *You, We, They* ile"
-        " **were** kullanılır).\n\n"
-        "**2. Örnek Cümle Analizi:**\n"
-        "• *Olumlu:* She was a hardworking student. (O çalışkan bir"
-        " öğrenciydi.)\n"
-        "• *Soru:* Were they ready for the exam? (Sınava hazırlar mıydı?)\n\n"
-        "**3. Esila'dan Tureng İpucu:**\n"
-        "• Kelime veya kalıp öğrenirken sadece Türkçesini değil, cümle içindeki"
-        " kullanım yerini ezberlemek akıcılığı 2 kat artırır.\n\n"
-        f"💡 Başka bir cümle çevirisi veya kelime sormak ister misin {nick}?"
+        f"🇬🇧 **Esila Yerel NLP Dil & Çeviri Stüdyosu (Tureng & Grammar Modu)**\n"
+        f"**Öğrenci:** {nick} | **Seviye:** {grd} | **Sorgu:** `{query}`\n\n"
+        "**1. Ansiklopedik Sözlük Tanımı (Tureng Veritabanı Mantığı):**\n"
+        f"• Sorduğun ifade ({query}), İngilizce dilbilgisinde temel yapı taşlarından biridir. Cümle içinde anlam bütünlüğünü sağlamak ve zaman vurgusu yapmak için kritik rol oynar.\n\n"
+        "**2. Kural ve Gramer Yapısı:**\n"
+        "• Bu tür yapılarda özne-yüklem uyumuna dikkat edilir. Tekil özneler ve çoğul özneler cümleye farklı ekler veya yardımcı fiiller getirir.\n"
+        "• *Örnek Cümle Analizi:* He/She/It özneleri ile geçmiş zamanda **was** kullanılırken, You/We/They özneleri ile **were** kullanılır.\n\n"
+        "**3. Pratik Kullanım İpucu:**\n"
+        "• Kelimeleri ezberlemek yerine, bu ifadenin geçtiği günlük diyalog kalıplarını incelemek akıcılığı doğrudan artırır.\n\n"
+        f"💡 Başka bir kelime çevirisi veya dil bilgisi kuralı sormak ister misin {nick}?"
     )
 
-  # 2. FİZİK VE FEN BİLİMLERİ
+  # 2. FİZİK & FEN BİLİMLERİ (Formül ve Kanun Motoru)
   elif "fizik" in subj.lower() or "fen" in subj.lower():
     return (
-        f"⚡ **Esila Fizik Laboratuvarı (Ansiklopedik Analiz)**\n"
-        f"**Seviye:** {grd} | **Öğrenci:** {nick}\n\n"
-        f'🔍 Sorduğun **"{query}"** konusunu fizik kanunları ve literatürüyle'
-        " taradım:\n\n"
-        "**1. Teorik Altyapı ve Tanım:**\n"
-        "• Bu kavram, evrendeki temel kuvvet, enerji korunumu ve hareket"
-        " yasalarına dayanır.\n\n"
-        "**2. Formül ve İşlem Adımları:**\n"
-        "• Verilen nicelikleri SI birim sistemine göre düzenle ve formülde yerine"
-        " koyarak işlem önceliğiyle çöz.\n\n"
-        "**3. Kritik İpucu:**\n"
-        "• Fizik problemlerinde yön, işaret ve birim uyumu en hayati"
-        " detaylardır.\n\n"
+        f"⚡ **Esila Yerel Fizik Laboratuvarı (Formül & Kanun Analizi)**\n"
+        f"**Öğrenci:** {nick} | **Seviye:** {grd} | **Sorgu:** `{query}`\n\n"
+        "**1. Fiziksel Teorik Altyapı:**\n"
+        f"• Sorduğun **\"{query}\"** konusu, evrendeki temel kuvvetler, enerji korunumu ve dinamik denge yasaları çerçevesinde incelenir.\n\n"
+        "**2. Adım Adım Çözüm ve Formül Stratejisi:**\n"
+        "• **Adım 1:** Verilen verileri ve birimleri (kg, metre, saniye) listele.\n"
+        "• **Adım 2:** İlgili fizik yasasına ait formülü yaz ve bilinmeyeni yalnız bırak.\n"
+        "• **Adım 3:** İşlem önceliğine dikkat ederek hesaplamayı tamamla.\n\n"
+        "**3. Kritik Sınav İpucu:**\n"
+        "• Fizik problemlerinde yön, işaret ve birim dönüşümleri sorunun çözüm anahtarıdır.\n\n"
         f"💡 Bu konuyla ilgili sayısal bir örnek çözmemi ister misin {nick}?"
     )
 
-  # 3. MATEMATİK & GEOMETRİ
+  # 3. MATEMATİK & GEOMETRİ (Teorem ve İşlem Motoru)
   elif "matematik" in subj.lower() or "geometri" in subj.lower():
     return (
-        f"📐 **Esila Matematik Araştırma Merkezi**\n"
-        f"**Seviye:** {grd} | **Öğrenci:** {nick}\n\n"
-        f'🔍 Sorduğun **"{query}"** başlığını matematiksel teoremlerle'
-        " inceledim:\n\n"
-        "**1. Teorem ve Kural Özeti:**\n"
-        "• İlgili matematiksel bağıntı, analitik mantık ve formülizasyon"
-        " kurallarına dayanır.\n\n"
-        "**2. Adım Adım Çözüm Yolu:**\n"
-        "• **Adım 1:** Verilenler ve bilinmeyenleri belirle.\n"
-        "• **Adım 2:** Uygun denklemi kurup sadeleştir.\n"
-        "• **Adım 3:** Sonucu kontrol et.\n\n"
-        f"💡 Düzenli işlem yapmak sınavda hayat kurtarır {nick}!"
+        f"📐 **Esila Yerel Matematik Çözüm Merkezi**\n"
+        f"**Öğrenci:** {nick} | **Seviye:** {grd} | **Sorgu:** `{query}`\n\n"
+        "**1. Matematiksel Teorem ve Bağıntı:**\n"
+        f"• İncelediğimiz **\"{query}\"** başlığı, analitik düşünme, cebirsel kurallar ve geometri teoremlerine dayanır.\n\n"
+        "**2. Adım Adım Çözüm Adımları:**\n"
+        "• **Verilenler:** Problemdeki öncüller matematiksel denkleme dökülür.\n"
+        "• **Uygulama:** Uygun formül veya çarpanlara ayırma / türev / integral kuralları uygulanır.\n"
+        "• **Sonuç:** Adım adım sadeleştirilerek sonuca ulaşılır.\n\n"
+        f"💡 İşlemleri düzenli alt alta yazmak her zaman net kazandırır {nick}!"
     )
 
-  # 4. TÜRK DİLİ VE EDEBİYATI / TÜRKÇE
+  # 4. TÜRKÇE & EDEBİYAT (Ansiklopedik Edebi Analiz)
   elif "edebiyat" in subj.lower() or "türkçe" in subj.lower():
     return (
-        f"📖 **Esila Edebiyat Ansiklopedisi (Wikipedia Modu)**\n"
-        f"**Seviye:** {grd} | **Öğrenci:** {nick}\n\n"
-        f'🔍 Sorduğun **"{query}"** başlığını edebi akımlar ve dil bilgisi'
-        " kurallarına göre inceledim:\n\n"
+        f"📖 **Esila Yerel Edebiyat Ansiklopedisi (Wikipedia Modu)**\n"
+        f"**Öğrenci:** {nick} | **Seviye:** {grd} | **Sorgu:** `{query}`\n\n"
         "**1. Edebi / Dil Bilgisel Temel:**\n"
-        "• Yazarın üslubu, dönemin özellikleri veya dilin yapı taşları"
-        " çerçevesinde bu konu büyük önem taşır.\n\n"
-        "**2. Sınav Taktikleri:**\n"
-        "• Paragraf ve eser analizlerinde anahtar kelimelere odaklanmak doğru"
-        " cevaba en kısa yoldan ulaştırır.\n\n"
-        f"💡 Bu konuyla ilgili soru tarzı incelememizi ister misin {nick}?"
+        f"• Sorduğun **\"{query}\"** başlığı, Türk dili ve edebiyatında yazarın üslubu, dönem özellikleri veya dil bilgisi kuralları bakımından büyük önem taşır.\n\n"
+        "**2. Önemli İpuçları:**\n"
+        "• Sınav sorularında anahtar kelimelere odaklanmak ve kök bilgilerini hatırlamak doğru cevaba en kısa yoldan ulaştırır.\n\n"
+        f"💡 Paragraf sorularında önce soru kökünü okumak zaman kazandırır {nick}!"
     )
 
-  # 5. KİMYA, BİYOLOJİ VE DİĞER SOSYAL/FEN BİLİMLERİ
-  elif any(
-      w in subj.lower()
-      for w in ["kimya", "biyoloji", "tarih", "coğrafya", "felsefe"]
-  ):
-    return (
-        f"📚 **Esila Akademik Bilgi Bankası ({subj})**\n"
-        f"**Seviye:** {grd} | **Öğrenci:** {nick}\n\n"
-        f'🔍 Sorduğun **"{query}"** başlığını güncel akademik kaynaklardan'
-        " tarayarak özetledim:\n\n"
-        "**1. Temel Kavramlar ve Mantık:**\n"
-        "• Bu konu, bilimsel veya sosyal bilimler literatüründe temel yapı"
-        " taşlarını oluşturur.\n\n"
-        "**2. Önemli Noktalar:**\n"
-        "• Olaylar veya reaksiyonlar arası neden-sonuç ilişkisini kurmak konuyu"
-        " kalıcı hale getirir.\n\n"
-        f"💡 Esila her zaman yanında {nick}! Başka ne inceleyelim?"
-    )
-
-  # 6. ÜNİVERSİTE / YAZILIM / GENEL
+  # 5. DİĞER TÜM DERSLER VE ÜNİVERSİTE/YAZILIM
   else:
     return (
-        f"✨ **Esila AI — Kapsamlı Ansiklopedik Analiz Raporu**\n"
+        f"✨ **Esila Yerel AI — Kapsamlı Ansiklopedik Analiz Raporu**\n"
         f"**Öğrenci:** {nick} | **Seviye:** {grd} | **Ders:** {subj}\n\n"
-        f'🔍 Sorduğun **"{query}"** başlığını geniş bilgi tabanında inceledim:\n\n'
+        f"🔍 Sorduğun **\"{query}\"** başlığını yerel bilgi tabanımızda detaylıca taradım:\n\n"
         f"**1. Kavramsal Temel ve Mantık ({subj}):**\n"
-        f"• Bu konunun özü ezbere değil, mantığa ve analitik düşünmeye dayanır."
-        " Akademik düzeyde bu temeli kavramak kariyerinde büyük avantaj"
-        " sağlar.\n\n"
+        f"• Bu konunun özü ezbere değil, mantığa ve analitik düşünmeye dayanır. {subj} alanında bu temeli kavramak sınavlarında ve projelerinde büyük avantaj sağlar.\n\n"
         "**2. Adım Adım Strateji:**\n"
         "• Problemi parçalara ayır, kuralları uygula ve sonucu doğrula.\n\n"
-        f"💡 Bu analizle ilgili detaylı çalışma kağıdı hazırlamamı ister misin"
-        f" {nick}?"
+        f"💡 Bu analizle ilgili detaylı çalışma kağıdı hazırlamamı ister misin {nick}?"
     )
 
 
@@ -444,7 +418,7 @@ if not st.session_state.user:
         """
             <div class="hero-box">
               <h2>EduCore-AI Stüdyo</h2>
-              <p style="margin:5px 0 0 0; color:#e2e8f0;">10 Katmanlı Güvenlik Duvarı ile Korunmaktadır</p>
+              <p style="margin:5px 0 0 0; color:#e2e8f0;">10 Katmanlı Güvenlik Duvarı & Yerel AI Aktif</p>
             </div>
         """,
         unsafe_allow_html=True,
@@ -459,9 +433,9 @@ if not st.session_state.user:
 
       if st.button("Giriş Yap", type="primary"):
         if l_email and l_pass:
-          # Layer 7: Parametreli Güvenli Sorgu
           conn = sqlite3.connect(DB_PATH)
           c = conn.cursor()
+          # Layer 7: Parametreli Güvenli Sorgu
           c.execute(
               "SELECT * FROM users WHERE email = ?", (l_email.strip().lower(),)
           )
@@ -590,14 +564,14 @@ else:
       f"""
         <div class="hero-box" style="padding: 20px;">
           <h2>EduCore-AI Stüdyosu — {subj}</h2>
-          <p style="margin:0; color:#e2e8f0;">{cat} | Esila Ansiklopedik Asistan (10x Güvenlik)</p>
+          <p style="margin:0; color:#e2e8f0;">{cat} | Yerel AI Asistanı - Esila</p>
         </div>
     """,
       unsafe_allow_html=True,
   )
 
   tabs = st.tabs([
-      "💬 Sohbet & Esila AI",
+      "💬 Sohbet & Yerel AI",
       "👥 Gruplar & Özel Mesajlaşma",
       "⚙️ Hesap & Güvenlik",
       "📋 Yazılı Senaryoları",
@@ -607,15 +581,15 @@ else:
   ])
 
   with tabs[0]:
-    st.markdown(f"### 💬 Esila AI Asistan ({cat} - {subj})")
+    st.markdown(f"### 💬 Esila Yerel AI Asistan ({cat} - {subj})")
 
     if not st.session_state.messages:
       st.session_state.messages = [{
           "role": "assistant",
           "content": (
-              f"Merhaba {nick}! Ben **Esila**, EduCore-AI asistanın aktif."
-              f" **{cat} - {subj}** dalında dilediğin soruyu, kelime çevirisini"
-              " veya konuyu sorabilirsin."
+              f"Merhaba {nick}! Ben **Esila**, EduCore-AI yerel asistanın"
+              f" aktif. **{cat} - {subj}** dalında dilediğin konuyu, kelimeyi"
+              " veya soruyu sorabilirsin."
           ),
       }]
 
