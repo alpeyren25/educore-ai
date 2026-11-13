@@ -91,11 +91,9 @@ def enterprise_cin_seddi_firewall(
     log_security_incident(user_code, "BUFFER_OVERFLOW", raw_input)
     return False, "🧱 Çin Seddi Ultra (Katman 120): Bellek sınır aşımı engellendi!"
 
-  # 1. Adım: Unicode Normalizasyonu (Bypass Hilelerini Kökten Önleme)
   normalized_input = unicodedata.normalize("NFKC", raw_input)
   q_lower = normalized_input.lower()
 
-  # 2. Adım: Gelişmiş SQL Sızdırma & Blind SQLi İmzaları
   sql_patterns = [
       r"drop\s+table",
       r"union\s+select",
@@ -121,7 +119,6 @@ def enterprise_cin_seddi_firewall(
           " loglandı!",
       )
 
-  # 3. Adım: XSS & Kod Enjeksiyon Kalkanları
   xss_patterns = [
       r"<script>",
       r"javascript:",
@@ -142,7 +139,6 @@ def enterprise_cin_seddi_firewall(
           "🧱 Çin Seddi Ultra: Zararlı betik veya XSS enjeksiyonu engellendi!",
       )
 
-  # 4. Adım: Gelişmiş Toksisite ve Argo Filtreleme
   bad_words = [
       "küfür",
       "mal",
@@ -164,7 +160,6 @@ def enterprise_cin_seddi_firewall(
       log_security_incident(user_code, "TOXICITY_FILTER", raw_input)
       return False, "TURNOVER_PROF"
 
-  # 5. Adım: Akıllı Rate Limiting & Bot Spam Kalkanı
   if "cin_seddi_last_req" in st.session_state:
     elapsed = time.time() - st.session_state.cin_seddi_last_req
     if elapsed < 0.2:
@@ -176,7 +171,6 @@ def enterprise_cin_seddi_firewall(
       )
   st.session_state.cin_seddi_last_req = time.time()
 
-  # 6. Adım: Entropi ve Karakter Anomali Tespiti
   if q_lower.count("'") > 3 or q_lower.count(";") > 3 or q_lower.count("--") > 0:
     log_security_incident(user_code, "SYNTAX_ANOMALY", raw_input)
     return (
@@ -280,7 +274,6 @@ def init_db():
 
 init_db()
 
-# Oturum Durumu Başlangıç Tanımları (Hata Önleyici)
 if "user" not in st.session_state:
   st.session_state.user = None
 if "messages" not in st.session_state:
@@ -621,4 +614,14 @@ else:
   app_tab1, app_tab2, app_tab3, app_tab4 = st.tabs([
       "💬 Esila AI Asistan",
       "👥 Sosyal Çalışma Grupları & Arkadaşlar",
-      "⚙️ Şifre Değiştir (Es
+      "⚙️ Şifre Değiştir (Eski Şifre Hafızalı)",
+      "🛡️ Çin Seddi Güvenlik Logları (Audit)",
+  ])
+
+  with app_tab1:
+    if not st.session_state.messages:
+      st.session_state.messages = [{
+          "role": "assistant",
+          "content": (
+              f"Selam {nick}! Ben **Esila**, kurumsal yapay zeka asistanın."
+              f" **{cat} - {subj}** dersindeyiz. Sor bakalım ne istiyorsun?"
