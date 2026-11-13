@@ -620,8 +620,8 @@ else:
 
   with app_tab1:
     if not st.session_state.messages:
-      st.session_state.messages = [{
-          "role": "assistant",
-          "content": (
+      st.session_state.messages = [{}]
+          "role" : "assistant",
+          "content": ()
               f"Selam {nick}! Ben **Esila**, kurumsal yapay zeka asistanın."
               f" **{cat} - {subj}** dersindeyiz. Sor bakalım ne istiyorsun?"
