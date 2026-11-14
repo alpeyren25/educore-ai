@@ -1,4 +1,4 @@
-""" EduCore-AI | Tek dosya birleşik sürüm (v7 - Pomodoro ve Gelişmiş Matematik Güncellemesi)
+""" EduCore-AI | Tek dosya birleşik sürüm (v7.1 - Düzeltilmiş Kararlı Sürüm)
 Kurulum : pip install -r requirements.txt
 Çalıştır: streamlit run app.py
 İlk yönetici: Hosting Secrets bölümünde EDUCORE_ADMIN_SETUP_KEY tanımlanır; normal kayıt ekranında yönetici kodu gösterilmez.
@@ -1348,12 +1348,9 @@ def solve_equation(s):
 
 
 def calculus_answer(q):
-    """Polinom türev ve integral hesaplama yardımcı motoru."""
     s = q.strip().lower()
-    # Türev kontrolü
     if s.startswith("türev ") or s.startswith("turev "):
         expr = s.replace("türev", "").replace("turev", "").strip()
-        # Örn: x^3 + 2x^2 - 5x + 7
         return (
             f"📈 **Türev Alma İşlemi:** `{expr}`\n\n"
             "**Temel Türev Kuralları:**\n"
@@ -1362,7 +1359,6 @@ def calculus_answer(q):
             "3. **Sabit Sayı:** Sabit terimin türevi $0$'dır.\n\n"
             "💡 *İpucu:* Karmaşık fonksiyonların türevi ve adım adım çözümleri için Esila AI bulut motorunu kullanabilirsiniz."
         )
-    # İntegral kontrolü
     if s.startswith("integral ") or s.startswith("int "):
         expr = s.replace("integral", "").replace("int", "").strip()
         return (
@@ -1380,7 +1376,6 @@ def math_answer(q):
     s = q.strip().lower()
     if len(s) > 120:
         return None
-    # Önce türev / integral isteklerini kontrol et
     calc = calculus_answer(s)
     if calc:
         return calc
@@ -2196,7 +2191,8 @@ def page_cards(me):
                         )
                     st.session_state.pop("rev", None)
                     st.rerun()
-            elif st.button("Cevabı göster", type="primary"):
+            
+            if st.button("Cevabı göster", type="primary"):
                 st.session_state["rev"] = card["id"]
                 st.rerun()
     with t2:
