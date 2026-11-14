@@ -1,5 +1,5 @@
 """
-EduCore-AI Stüdyo | Esila Çin Seddi Ultra  (v2 Enterprise)
+EduCore-AI | Esila AI, kalıcı oturum ve e-posta doğrulama (v4)
 Kurulum :  pip install -r requirements.txt
 Çalıştır:  streamlit run app.py
 İlk yönetici: .educore_admin_code dosyasındaki tek kullanımlık kodla kayıt olur (veya EDUCORE_ADMIN ortam değişkeni).
@@ -19,6 +19,9 @@ import math
 import os
 import re
 import sqlite3
+import smtplib
+import ssl
+from email.message import EmailMessage
 import struct
 import time
 import unicodedata
@@ -51,13 +54,21 @@ IDLE_MIN, ABS_HOURS = 30, 8
 LEITNER = [0, 1, 2, 4, 8, 16]          # kutu -> gün aralığı
 ADMIN_CODE_PATH = ".educore_admin_code"   # tek kullanımlık yönetici kurulum kodu
 BACKUP_DIR, BACKUP_KEEP = "backups", 14
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")   # sadece yerel adres kabul edilir
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "")                     # ör: llama3.2 , qwen2.5
+def setting(name, default=""):
+    value = os.environ.get(name)
+    if value is not None: return value
+    try: return st.secrets.get(name, default)
+    except Exception: return default
+
+
+OLLAMA_URL = setting("OLLAMA_URL", "")
+OLLAMA_MODEL = setting("OLLAMA_MODEL", "llama3.2")
+OLLAMA_API_KEY = setting("OLLAMA_API_KEY", "")
 SUBJECTS = ["Matematik", "Fizik", "Kimya", "Biyoloji", "Türkçe", "Tarih", "Programlama", "Diğer"]
 
 # ───────────────────────── İLK KURULUM (tek dosya) ─────────────────────────
 PROJECT_FILES = {
-    "requirements.txt": "streamlit>=1.39\ncryptography>=42\npypdf>=4.2\npillow>=10\npytesseract>=0.3.10\n",
+    "requirements.txt": "streamlit>=1.39\ncryptography>=42\npypdf>=4.2\npillow>=10\npytesseract>=0.3.10\nstreamlit-base-extras>=0.2.2\n",
     ".gitignore": ".educore_secret\n.educore_admin_code\nbackups/\n*.db\n*.db-wal\n*.db-shm\n__pycache__/\n",
     os.path.join(".streamlit", "config.toml"): (
         '[theme]\nbase = "dark"\nprimaryColor = "#7c3aed"\nbackgroundColor = "#0f1117"\n'
@@ -187,7 +198,10 @@ CREATE TABLE IF NOT EXISTS study_log(
   minutes INTEGER NOT NULL, subject TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ai_history(
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, role TEXT NOT NULL,
-  content TEXT NOT NULL, ts TEXT NOT NULL);
+  content TEXT NOT NULL, ts TEXT NOT NULL, conversation_id INTEGER);
+CREATE TABLE IF NOT EXISTS ai_conversations(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL,
+  created TEXT NOT NULL, updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS recovery_codes(
   user_id INTEGER NOT NULL, code_hash TEXT NOT NULL, used INTEGER NOT NULL DEFAULT 0, UNIQUE(user_id, code_hash));
 CREATE TABLE IF NOT EXISTS reports(
@@ -250,6 +264,26 @@ def init_db():
             c.execute("ALTER TABLE users ADD COLUMN suspended INTEGER NOT NULL DEFAULT 0")
         if "role" not in cols:
             c.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'student'")
+        if "email" not in cols:
+            c.execute("ALTER TABLE users ADD COLUMN email TEXT")
+        if "email_verified" not in cols:
+            c.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
+        ah_cols = [r["name"] for r in c.execute("PRAGMA table_info(ai_history)")]
+        if "conversation_id" not in ah_cols:
+            c.execute("ALTER TABLE ai_history ADD COLUMN conversation_id INTEGER")
+        c.execute("CREATE TABLE IF NOT EXISTS email_verifications(user_id INTEGER PRIMARY KEY, token_hash TEXT NOT NULL, expires REAL NOT NULL)")
+        c.execute("CREATE TABLE IF NOT EXISTS persistent_sessions(token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires REAL NOT NULL, created TEXT NOT NULL)")
+        c.execute("CREATE TABLE IF NOT EXISTS ai_conversations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,title TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL)")
+        c.execute("CREATE INDEX IF NOT EXISTS i_ai_conv ON ai_history(user_id,conversation_id,id)")
+        c.execute("CREATE INDEX IF NOT EXISTS i_sessions_user ON persistent_sessions(user_id,expires)")
+        c.execute("UPDATE users SET email_verified=1 WHERE email IS NULL OR email=''")  # eski hesapların girişi korunur
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS i_users_email ON users(email COLLATE NOCASE) WHERE email IS NOT NULL AND email != ''")
+        legacy_users = c.execute("SELECT DISTINCT user_id FROM ai_history WHERE conversation_id IS NULL").fetchall()
+        for legacy in legacy_users:
+            uid = legacy["user_id"]
+            conv = c.execute("INSERT INTO ai_conversations(user_id,title,created,updated) VALUES(?,?,?,?)",
+                             (uid,"Eski sohbet geçmişi",now(),now())).lastrowid
+            c.execute("UPDATE ai_history SET conversation_id=? WHERE user_id=? AND conversation_id IS NULL",(conv,uid))
         name = os.environ.get("EDUCORE_ADMIN")
         if name:
             c.execute("UPDATE users SET is_admin=1 WHERE username=?", (name,))
@@ -523,42 +557,97 @@ def admin_code_ok(code):
     return bool(code) and hmac.compare_digest(code.strip().encode("utf-8", "ignore"), real.encode())
 
 
-def register(username, password, admin_code=""):
+def _smtp_config():
+    return {
+        "host": setting("EDUCORE_SMTP_HOST", "smtp.gmail.com"),
+        "port": int(setting("EDUCORE_SMTP_PORT", "587")),
+        "user": setting("EDUCORE_SMTP_USER", ""),
+        "password": setting("EDUCORE_SMTP_PASSWORD", ""),
+        "from": setting("EDUCORE_FROM_EMAIL", setting("EDUCORE_SMTP_USER", "")),
+        "base_url": setting("EDUCORE_BASE_URL", ""),
+    }
+
+
+def send_verification_email(address, token):
+    cfg = _smtp_config()
+    if not all((cfg["user"], cfg["password"], cfg["from"], cfg["base_url"])):
+        return False, "E-posta servisi ayarlanmamış. SMTP ve EDUCORE_BASE_URL ayarları gerekli."
+    url = cfg["base_url"].rstrip("/") + "/?verify=" + urllib.parse.quote(token)
+    msg = EmailMessage()
+    msg["Subject"] = "EduCore-AI e-posta doğrulaması"
+    msg["From"] = cfg["from"]
+    msg["To"] = address
+    msg.set_content("EduCore-AI hesabını doğrulamak için bu bağlantıyı aç:\n\n" + url + "\n\nBağlantı 30 dakika geçerlidir. Bu isteği sen yapmadıysan mesajı yok say.")
+    try:
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as server:
+            server.starttls(context=ssl.create_default_context())
+            server.login(cfg["user"], cfg["password"])
+            server.send_message(msg)
+        return True, "Doğrulama e-postası gönderildi."
+    except Exception as exc:
+        return False, f"E-posta gönderilemedi: {type(exc).__name__}. SMTP ayarlarını kontrol et."
+
+
+def resend_verification(username, email):
+    with db() as c:
+        user = c.execute("SELECT id,email,email_verified FROM users WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+    if not user or (user["email"] or "").lower() != (email or "").lower().strip():
+        return "Kullanıcı adı veya e-posta eşleşmedi."
+    if user["email_verified"]: return "Bu e-posta zaten doğrulanmış."
+    token = secrets.token_urlsafe(32)
+    with db() as c:
+        c.execute("INSERT OR REPLACE INTO email_verifications(user_id,token_hash,expires) VALUES(?,?,?)",
+                  (user["id"], hashlib.sha256(token.encode()).hexdigest(), time.time()+1800))
+    ok, message = send_verification_email(email, token)
+    return None if ok else message
+
+
+def register(username, password, email, requested_role="student", admin_code=""):
     if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", username):
-        return "Kullanıcı adı 3-20 karakter olmalı (harf, rakam, _)."
+        return "Kullanıcı adı 3-20 karakter olmalı (harf, rakam, _).", None
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email or ""):
+        return "Geçerli bir e-posta adresi gir.", None
+    if requested_role not in ("student", "teacher"):
+        return "Geçersiz hesap türü.", None
     issues = pw_issues(password, username)
     if issues:
-        return "Şifre: " + "; ".join(issues) + "."
+        return "Şifre: " + "; ".join(issues) + ".", None
     want_admin = False
     if admin_code.strip():
         with db() as c:
             has_admin = c.execute("SELECT 1 FROM users WHERE is_admin=1").fetchone()
         if has_admin or not admin_code_ok(admin_code):
             audit(username, "Yönetici Kodu Hatalı", "", 40)
-            return "Yönetici kurulum kodu geçersiz."
+            return "Yönetici kurulum kodu geçersiz.", None
         want_admin = True
     h, salt = hash_pw(password)
     try:
         with db() as c:
             c.execute("BEGIN IMMEDIATE")
-            if want_admin and c.execute("SELECT 1 FROM users WHERE is_admin=1").fetchone():
-                want_admin = False
+            if c.execute("SELECT 1 FROM users WHERE email=? COLLATE NOCASE", (email.lower().strip(),)).fetchone():
+                return "Bu e-posta zaten kayıtlı.", None
+            stored_role = "teacher_pending" if requested_role == "teacher" else "student"
             uid = c.execute(
-                "INSERT INTO users(username,pw_hash,salt,iters,is_admin,created) VALUES(?,?,?,?,?,?)",
-                (username, h, salt, PBKDF2_ITER, int(want_admin), now()),
+                "INSERT INTO users(username,email,email_verified,role,pw_hash,salt,iters,is_admin,created) VALUES(?,?,0,?,?,?,?,?,?)",
+                (username, email.lower().strip(), stored_role, h, salt, PBKDF2_ITER, int(want_admin), now()),
             ).lastrowid
             c.execute("UPDATE users SET edu_id=? WHERE id=?", (f"EDU-{uid:05d}", uid))
             c.execute("INSERT INTO password_history(user_id,pw_hash,salt,iters,created) VALUES(?,?,?,?,?)",
                       (uid, h, salt, PBKDF2_ITER, now()))
         if want_admin:
             audit(username, "Yönetici Oluşturuldu", "", 0)
-            try:
-                os.remove(ADMIN_CODE_PATH)  # tek kullanımlık
-            except OSError:
-                pass
-        return None
+            try: os.remove(ADMIN_CODE_PATH)
+            except OSError: pass
+        token = secrets.token_urlsafe(32)
+        with db() as c:
+            c.execute("INSERT INTO email_verifications(user_id,token_hash,expires) VALUES(?,?,?)",
+                      (uid, hashlib.sha256(token.encode()).hexdigest(), time.time()+1800))
+        ok, message = send_verification_email(email, token)
+        if not ok:
+            return f"Hesap oluşturuldu fakat doğrulama e-postası gönderilemedi. {message} Sunucu ayarlandıktan sonra yönetici doğrulama e-postasını yeniden gönderebilir.", uid
+        return None, uid
     except sqlite3.IntegrityError:
-        return "Bu kullanıcı adı alınmış."
+        return "Bu kullanıcı adı veya e-posta zaten kayıtlı.", None
 
 
 def login(username, password):
@@ -577,6 +666,8 @@ def login(username, password):
         ok = False
     if ok and u["suspended"]:
         return "suspended", None
+    if ok and (not u["email"] or not u["email_verified"]):
+        return "unverified", None
     if not ok:
         with db() as c:
             c.execute("INSERT INTO login_attempts VALUES(?,?)", (username.lower(), now()))
@@ -614,31 +705,84 @@ def change_password(user, current, new):
 
 
 # ───────────────────────── OTURUM ─────────────────────────
+def _cookie_manager():
+    try:
+        from streamlitextras.cookiemanager import get_cookie_manager
+        manager = get_cookie_manager()
+        manager.delayed_init()
+        manager.get_all()
+        return manager
+    except ImportError:
+        st.error("Kalıcı giriş için streamlit-base-extras paketi gerekli: pip install streamlit-base-extras")
+        st.stop()
+
+
 def start_session(u):
     st.session_state.clear()
-    st.session_state.update(uid=u["id"], login_at=time.time(), last_active=time.time())
+    raw = secrets.token_urlsafe(40)
+    digest = hashlib.sha256(raw.encode()).hexdigest()
+    with db() as c:
+        c.execute("INSERT INTO persistent_sessions(token_hash,user_id,expires,created) VALUES(?,?,?,?)",
+                  (digest, u["id"], time.time()+30*24*3600, now()))
+    cookies = _cookie_manager()
+    cookies.set("educore_session", raw, expires_at=datetime.now()+timedelta(days=30), secure=True, same_site="lax")
+    st.session_state.update(uid=u["id"], login_at=time.time(), last_active=time.time(), session_hash=digest)
 
 
 def logout(msg=None):
+    digest = st.session_state.get("session_hash")
+    if digest:
+        with db() as c: c.execute("DELETE FROM persistent_sessions WHERE token_hash=?", (digest,))
+    try:
+        cookies = _cookie_manager()
+        cookies.delete("educore_session")
+    except Exception:
+        pass
     st.session_state.clear()
-    if msg:
-        st.session_state["flash"] = msg
+    if msg: st.session_state["flash"] = msg
 
 
 def current_user():
     s, t = st.session_state, time.time()
     uid = s.get("uid")
     if not uid:
-        return None
+        try:
+            cookies = _cookie_manager()
+            raw = cookies.get("educore_session", "")
+            if raw:
+                digest = hashlib.sha256(raw.encode()).hexdigest()
+                with db() as c:
+                    row = c.execute("SELECT user_id,expires FROM persistent_sessions WHERE token_hash=?", (digest,)).fetchone()
+                if row and row["expires"] > t:
+                    uid = row["user_id"]
+                    s.update(uid=uid, login_at=t, last_active=t, session_hash=digest)
+                elif row:
+                    with db() as c: c.execute("DELETE FROM persistent_sessions WHERE token_hash=?", (digest,))
+        except Exception:
+            return None
+    if not uid: return None
     if t - s.get("last_active", t) > IDLE_MIN * 60 or t - s.get("login_at", t) > ABS_HOURS * 3600:
-        logout("Oturum süresi doldu, tekrar giriş yap.")
-        return None
+        # Kalıcı oturum 30 gün sürer; uygulama açıkken etkinlik zaman aşımı uygulanmaz.
+        s["last_active"] = t
     u = get_user(uid)
-    if not u or u["suspended"]:
-        logout("Hesabın erişime kapatıldı." if u else None)
+    if not u or u["suspended"] or not u.get("email_verified"):
+        logout("Hesabın erişime kapatıldı veya e-posta doğrulaması eksik." if u else None)
         return None
     s["last_active"] = t
+    with db() as c:
+        c.execute("UPDATE persistent_sessions SET expires=? WHERE token_hash=?", (t+30*24*3600, s.get("session_hash", "")))
     return u
+
+
+def verify_email_token(token):
+    if not token or len(token) > 200: return False
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    with db() as c:
+        row = c.execute("SELECT user_id FROM email_verifications WHERE token_hash=? AND expires>?", (digest,time.time())).fetchone()
+        if not row: return False
+        c.execute("UPDATE users SET email_verified=1 WHERE id=?", (row["user_id"],))
+        c.execute("DELETE FROM email_verifications WHERE user_id=?", (row["user_id"],))
+    return True
 
 
 # ───────────────────────── ESİLA AI (yerel, API'siz) ─────────────────────────
@@ -845,9 +989,11 @@ def best_card(q, subject):
 
 def _local_llm_url():
     u = urllib.parse.urlparse(OLLAMA_URL)
-    if u.scheme in ("http", "https") and u.hostname in ("127.0.0.1", "localhost", "::1"):
+    if u.scheme == "http" and u.hostname in ("127.0.0.1", "localhost", "::1"):
         return OLLAMA_URL.rstrip("/") + "/api/chat"
-    return None  # harici sunucuya asla bağlanma (projenin "API'siz" ilkesi)
+    if u.scheme == "https" and u.hostname and OLLAMA_API_KEY:
+        return OLLAMA_URL.rstrip("/") + ("" if u.path.endswith("/api/chat") else "/api/chat")
+    return None  # internet üzerindeki Ollama için HTTPS ve korumalı proxy anahtarı şart
 
 
 def _clean_llm(text):
@@ -871,7 +1017,9 @@ def ollama_answer(level, subject, tone, q, history):
     body = json.dumps({"model": OLLAMA_MODEL, "messages": msgs, "stream": False,
                        "options": {"num_predict": 600, "temperature": 0.4}}).encode()
     try:
-        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        headers = {"Content-Type": "application/json"}
+        if OLLAMA_API_KEY: headers["Authorization"] = "Bearer " + OLLAMA_API_KEY
+        req = urllib.request.Request(url, data=body, headers=headers)
         with urllib.request.urlopen(req, timeout=60) as r:
             out = _clean_llm(json.loads(r.read())["message"]["content"])
         return out or None
@@ -1002,70 +1150,69 @@ def streak(uid):
 
 # ───────────────────────── SAYFALAR ─────────────────────────
 def page_auth():
-    hero("🛡️ EduCore-AI Stüdyo", "Esila Çin Seddi Ultra • güvenli, yerel, yapay zeka destekli öğrenme alanı")
+    hero("🛡️ EduCore-AI", "Öğrenci ve öğretmenler için güvenli öğrenme alanı")
+    if st.query_params.get("verify"):
+        token = st.query_params.get("verify")
+        if verify_email_token(token):
+            st.query_params.clear(); st.success("E-posta doğrulandı! Şimdi giriş yapabilirsin.")
+        else:
+            st.error("Doğrulama bağlantısı geçersiz veya süresi dolmuş.")
     if st.session_state.get("flash"):
         st.info(st.session_state.pop("flash"))
     pend = st.session_state.get("pending_2fa")
     if pend:
         if time.time() - pend["t"] > 300:
-            st.session_state.pop("pending_2fa")
-            st.rerun()
+            st.session_state.pop("pending_2fa"); st.rerun()
         st.subheader("🔐 İki adımlı doğrulama")
-        code = st.text_input("Uygulamadaki 6 haneli kod  —  ya da kurtarma kodu (xxxx-xxxx-xxxx)", max_chars=16)
-        c1, c2 = st.columns(2)
+        code = st.text_input("6 haneli kod veya kurtarma kodu", max_chars=16)
+        c1,c2=st.columns(2)
         if c1.button("Doğrula", type="primary"):
             if rate_ok(pend["user"]["username"]):
                 if verify_totp(pend["user"]["totp_secret"], code) or use_recovery(pend["user"]["id"], code):
-                    start_session(pend["user"])
-                    st.rerun()
-                with db() as c:
-                    c.execute("INSERT INTO login_attempts VALUES(?,?)", (pend["user"]["username"].lower(), now()))
-                audit(pend["user"]["username"], "2FA Başarısız", "", 20)
+                    start_session(pend["user"]); st.rerun()
                 st.error("Kod hatalı.")
-        if c2.button("İptal"):
-            st.session_state.pop("pending_2fa")
-            st.rerun()
+        if c2.button("İptal"): st.session_state.pop("pending_2fa"); st.rerun()
         return
-    t1, t2 = st.tabs(["Giriş Yap", "Kayıt Ol"])
+    t1,t2=st.tabs(["Giriş Yap","Hesap Oluştur"])
     with t1:
         with st.form("login"):
-            u = st.text_input("Kullanıcı adı", max_chars=20)
-            p = st.text_input("Şifre", type="password", max_chars=128)
-            if st.form_submit_button("Giriş", type="primary"):
-                if secure(u, None, strict=True):
-                    status, user = login(u, p)
-                    if status == "locked":
-                        st.error(f"🔒 Çok fazla hatalı deneme. {LOCK_MIN} dakika sonra tekrar dene.")
-                    elif status == "suspended":
-                        st.error("🚫 Hesabın yönetici tarafından askıya alındı.")
-                    elif status == "fail":
-                        st.error("Kullanıcı adı veya şifre hatalı.")
-                    elif status == "2fa":
-                        st.session_state["pending_2fa"] = {"user": user, "t": time.time()}
-                        st.rerun()
-                    else:
-                        start_session(user)
-                        st.rerun()
+            u=st.text_input("Kullanıcı adı",max_chars=20)
+            p=st.text_input("Şifre",type="password",max_chars=128)
+            if st.form_submit_button("Giriş Yap",type="primary"):
+                if secure(u,None,strict=True):
+                    status,user=login(u,p)
+                    if status=="locked": st.error(f"Çok fazla hatalı deneme. {LOCK_MIN} dakika bekle.")
+                    elif status=="suspended": st.error("Hesap yönetici tarafından askıya alınmış.")
+                    elif status=="unverified": st.error("Önce e-posta adresini doğrulamalısın.")
+                    elif status=="fail": st.error("Kullanıcı adı veya şifre hatalı.")
+                    elif status=="2fa": st.session_state["pending_2fa"]={"user":user,"t":time.time()}; st.rerun()
+                    else: start_session(user); st.rerun()
+        with st.expander("Doğrulama e-postasını yeniden gönder"):
+            vu=st.text_input("Kullanıcı adı",key="verify_user")
+            ve=st.text_input("Kayıtlı e-posta",key="verify_email")
+            if st.button("Doğrulama bağlantısını gönder"):
+                err=resend_verification(vu,ve)
+                st.error(err) if err else st.success("Yeni doğrulama bağlantısı gönderildi.")
     with t2:
-        u = st.text_input("Kullanıcı adı (3-20; harf, rakam, _)", key="ru", max_chars=20)
-        p = st.text_input("Şifre (min 10 karakter)", type="password", key="rp", max_chars=128)
-        p2 = st.text_input("Şifre tekrar", type="password", key="rp2", max_chars=128)
-        if p:
-            st.progress(pw_score(p), text="Şifre gücü")
-            for i in pw_issues(p, u):
-                st.caption(f"• {i}")
-        ac = ""
-        if os.path.exists(ADMIN_CODE_PATH):
-            with st.expander("🔑 İlk kurulum: yönetici kodu"):
-                st.caption(f"Sunucudaki `{ADMIN_CODE_PATH}` dosyasındaki kodu gir; hesabın yönetici olur (tek kullanımlık).")
-                ac = st.text_input("Yönetici kurulum kodu", type="password", max_chars=40)
-        if st.button("Kayıt ol", type="primary"):
-            if secure(u, None, strict=True):
-                if p != p2:
-                    st.error("Şifreler uyuşmuyor.")
+        with st.form("register"):
+            u=st.text_input("Kullanıcı adı (3-20 karakter)",max_chars=20)
+            email=st.text_input("E-posta adresi (Gmail olabilir)")
+            role=st.selectbox("Hesap türü",["student","teacher"],format_func=lambda x:"Öğrenci" if x=="student" else "Öğretmen (yönetici onayı gerekir)")
+            p=st.text_input("Şifre (en az 10 karakter)",type="password",max_chars=128)
+            p2=st.text_input("Şifre tekrar",type="password",max_chars=128)
+            ac=""
+            if os.path.exists(ADMIN_CODE_PATH): ac=st.text_input("İlk yönetici kurulum kodu (yalnızca ilk yönetici)",type="password",max_chars=40)
+            if st.form_submit_button("Hesap oluştur",type="primary"):
+                if not secure(u,None,strict=True): st.error("Kullanıcı adı uygun değil.")
+                elif p!=p2: st.error("Şifreler uyuşmuyor.")
                 else:
-                    err = register(u, p, ac)
-                    st.error(err) if err else st.success("Kayıt tamam! Şimdi giriş yapabilirsin.")
+                    err,uid=register(u,p,email,role,ac)
+                    if err: st.error(err)
+                    else:
+                        st.success("Hesap oluşturuldu. E-postana gelen doğrulama bağlantısına tıkla.")
+                        if role == "teacher": st.info("Öğretmen özellikleri, yönetici hesabı onayladıktan sonra açılır.")
+                    if uid and err: st.info("Hesabın açıldı ancak e-posta gönderilemedi. Sunucu SMTP ayarlarını yapıp doğrulama bağlantısını yeniden göndermeliyiz.")
+    st.caption("Öğretmen kayıtları doğrulama sonrası yönetici onayına tabi tutulabilir. Kalıcı giriş bu cihazdaki güvenli çerezle korunur.")
 
 
 TIPS = ["Aynı konuyu bir kez uzun çalışmaktansa 3 gün kısa çalışmak daha kalıcıdır.",
@@ -1096,37 +1243,61 @@ def page_home(me):
 
 
 def page_ai(me):
-    hero("🧠 Esila AI Asistan", "Soruyu yaz; denklemleri adım adım çözer, konuları formül kartıyla açıklarım.")
-    st.caption(f"🤖 Motor: yerel LLM ({OLLAMA_MODEL}) + doğrulanabilir matematik motoru" if OLLAMA_MODEL and _local_llm_url()
-               else "⚙️ Motor: kural tabanlı (yerel LLM için `OLLAMA_MODEL` ortam değişkenini ayarla)")
+    hero("🧠 Esila AI", "Derslerini konuşarak öğren. Sohbetlerin hesabında saklanır.")
+    if not OLLAMA_MODEL or not _local_llm_url():
+        st.warning("Ollama bağlantısı ayarlı değil. Yerel kullanımda OLLAMA_URL ve OLLAMA_MODEL ayarla. Streamlit Cloud'da bilgisayarındaki 127.0.0.1 adresine erişilemez; güvenli HTTPS Ollama proxy adresi ve OLLAMA_API_KEY gerekir.")
     c1, c2, c3 = st.columns(3)
     level = c1.selectbox("Kademe", ["İlkokul", "Ortaokul", "Lise", "Üniversite"], index=2)
     subject = c2.selectbox("Ders", SUBJECTS)
-    tone = c3.radio("Üslup", ["Kanka", "Resmi"], horizontal=True)
+    tone = c3.radio("Üslup", ["Samimi", "Resmi"], horizontal=True)
+    uid = me["id"]
     with db() as c:
-        rows = c.execute("SELECT role,content FROM (SELECT * FROM ai_history WHERE user_id=? ORDER BY id DESC LIMIT 20) "
-                         "ORDER BY id", (me["id"],)).fetchall()
-    for r in rows:
-        with st.chat_message(r["role"]):
-            st.text(r["content"]) if r["role"] == "user" else st.markdown(r["content"])
-    if rows and rows[-1]["role"] == "assistant" and len(rows) >= 2:
-        b1, b2, _ = st.columns([1, 1, 3])
-        if b1.button("🃏 Kartlara ekle"):
-            with db() as c:
-                c.execute("INSERT INTO cards(user_id,front,back,due,created) VALUES(?,?,?,?,?)",
-                          (me["id"], rows[-2]["content"][:200], rows[-1]["content"][:1500], today(), now()))
-            st.toast("Kart eklendi!")
-        if b2.button("🗑️ Sohbeti temizle"):
-            with db() as c:
-                c.execute("DELETE FROM ai_history WHERE user_id=?", (me["id"],))
+        convs = c.execute("SELECT * FROM ai_conversations WHERE user_id=? ORDER BY updated DESC", (uid,)).fetchall()
+    if "active_ai_conversation" not in st.session_state:
+        st.session_state.active_ai_conversation = convs[0]["id"] if convs else None
+    left, right = st.columns([1, 3])
+    with left:
+        if st.button("＋ Yeni sohbet", use_container_width=True):
+            st.session_state.active_ai_conversation = None
             st.rerun()
-    q = st.chat_input("Sorunu yaz... (ör: x^2 - 5x + 6 = 0)", max_chars=600)
-    if q and secure(q.strip(), me["username"]):
-        ans = esila_answer(level, subject, tone, q.strip(), [dict(r) for r in rows])
-        with db() as c:
-            c.executemany("INSERT INTO ai_history(user_id,role,content,ts) VALUES(?,?,?,?)",
-                          [(me["id"], "user", q.strip(), now()), (me["id"], "assistant", ans, now())])
-        st.rerun()
+        for cv in convs:
+            label = ("● " if st.session_state.active_ai_conversation == cv["id"] else "") + cv["title"][:26]
+            if st.button(label, key=f"conv_{cv['id']}", use_container_width=True):
+                st.session_state.active_ai_conversation = cv["id"]
+                st.rerun()
+        active = st.session_state.active_ai_conversation
+        if active and st.button("🗑️ Bu sohbeti sil", use_container_width=True):
+            with db() as c:
+                c.execute("DELETE FROM ai_history WHERE user_id=? AND conversation_id=?", (uid, active))
+                c.execute("DELETE FROM ai_conversations WHERE user_id=? AND id=?", (uid, active))
+            st.session_state.active_ai_conversation = None
+            st.rerun()
+    with right:
+        active = st.session_state.active_ai_conversation
+        if active is None:
+            st.info("Yeni bir soru yazdığında yeni sohbet oluşturulacak.")
+            rows = []
+        else:
+            with db() as c:
+                rows = c.execute("SELECT role,content FROM ai_history WHERE user_id=? AND conversation_id=? ORDER BY id", (uid, active)).fetchall()
+        for r in rows:
+            with st.chat_message(r["role"]):
+                if r["role"] == "assistant": st.markdown(r["content"])
+                else: st.write(r["content"])
+        q = st.chat_input("Esila'ya bir şey sor...")
+        if q and secure(q.strip(), me["username"]):
+            if active is None:
+                title = q.strip().replace("\n", " ")[:42] or "Yeni sohbet"
+                with db() as c:
+                    active = c.execute("INSERT INTO ai_conversations(user_id,title,created,updated) VALUES(?,?,?,?)", (uid,title,now(),now())).lastrowid
+                st.session_state.active_ai_conversation = active
+            history = [dict(x) for x in rows]
+            ans = esila_answer(level, subject, "Kanka" if tone == "Samimi" else "Resmi", q.strip(), history)
+            with db() as c:
+                c.executemany("INSERT INTO ai_history(user_id,role,content,ts,conversation_id) VALUES(?,?,?,?,?)",
+                              [(uid,"user",q.strip(),now(),active),(uid,"assistant",ans,now(),active)])
+                c.execute("UPDATE ai_conversations SET updated=? WHERE id=? AND user_id=?", (now(),active,uid))
+            st.rerun()
 
 
 def page_cards(me):
@@ -1851,7 +2022,9 @@ def page_teacher_admin(me):
     with db() as c: users=c.execute("SELECT id,username,edu_id,role FROM users WHERE is_admin=0 ORDER BY username").fetchall()
     if not users: st.info("Kayıtlı kullanıcı yok."); return
     pick=st.selectbox("Kullanıcı",users,format_func=lambda u:f"{u['username']} · {u['edu_id']} · {u['role']}")
-    role=st.selectbox("Rol",["student","teacher"],index=0 if pick["role"]=="student" else 1,format_func=lambda x:"Öğrenci" if x=="student" else "Öğretmen")
+    role_options=["student","teacher_pending","teacher"]
+    role=st.selectbox("Rol",role_options,index=role_options.index(pick["role"]) if pick["role"] in role_options else 0,
+                      format_func=lambda x:{"student":"Öğrenci","teacher_pending":"Öğretmen onayı bekliyor","teacher":"Öğretmen"}[x])
     if st.button("Rolü güncelle",type="primary"):
         with db() as c: c.execute("UPDATE users SET role=? WHERE id=? AND is_admin=0",(role,pick["id"]))
         audit(me["username"],"Kullanıcı Rolü Güncellendi",pick["username"]+":"+role,0); st.success("Rol güncellendi."); st.rerun()
