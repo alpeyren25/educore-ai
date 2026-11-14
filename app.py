@@ -111,7 +111,35 @@ CSS = """
       background:rgba(124,58,237,.22);color:#c4b5fd;margin-right:.3rem}
 div[data-testid="stMetric"]{background:rgba(127,127,127,.08);border:1px solid rgba(127,127,127,.22);
       padding:.8rem 1rem;border-radius:14px}
-.stButton>button{border-radius:10px;font-weight:600}
+.stButton>button{border-radius:10px;font-weight:600;min-height:2.65rem;white-space:normal}
+/* Erişilebilirlik ve duyarlı tasarım: cihaz kimliği/konumu toplanmaz. */
+html { scroll-behavior:smooth; }
+:focus-visible { outline:3px solid #a78bfa !important; outline-offset:2px !important; }
+[data-testid="stSidebar"] { min-width: min(19rem, 82vw); }
+[data-testid="stDataFrame"], [data-testid="stTable"] { max-width:100%; overflow-x:auto; }
+img, video, iframe { max-width:100%; }
+@media (max-width: 1023px) {
+  .block-container { padding-left:1.1rem; padding-right:1.1rem; }
+  .hero { padding:1.25rem; }
+  .hero h1 { font-size:1.55rem; }
+  div[data-testid="stHorizontalBlock"] { flex-wrap:wrap; gap:.75rem; }
+  div[data-testid="stHorizontalBlock"] > div { min-width:min(100%, 17rem); }
+}
+@media (max-width: 640px) {
+  .block-container { padding-top:.7rem; padding-left:.75rem; padding-right:.75rem; }
+  .hero { padding:1rem; border-radius:13px; }
+  .hero h1 { font-size:1.3rem; line-height:1.3; }
+  .hero p { font-size:.92rem; }
+  .card { padding:.85rem; font-size:.96rem; }
+  div[data-testid="stMetric"] { padding:.65rem; }
+  .stButton>button, .stDownloadButton>button { width:100%; min-height:2.9rem; }
+  [data-testid="stForm"] { padding:.65rem !important; }
+  input, textarea { font-size:16px !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior:auto !important; animation-duration:.01ms !important;
+    animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+}
 </style>
 """
 
@@ -279,6 +307,13 @@ def init_db():
         if "conversation_id" not in ah_cols:
             c.execute("ALTER TABLE ai_history ADD COLUMN conversation_id INTEGER")
         c.execute("CREATE TABLE IF NOT EXISTS email_verifications(user_id INTEGER PRIMARY KEY, token_hash TEXT NOT NULL, expires REAL NOT NULL)")
+        c.execute("""CREATE TABLE IF NOT EXISTS policy_acceptances(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            policy_version TEXT NOT NULL,
+            accepted_at TEXT NOT NULL,
+            UNIQUE(user_id, policy_version)
+        )""")
         c.execute("CREATE TABLE IF NOT EXISTS persistent_sessions(token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires REAL NOT NULL, created TEXT NOT NULL)")
         c.execute("CREATE TABLE IF NOT EXISTS ai_conversations(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,title TEXT NOT NULL,created TEXT NOT NULL,updated TEXT NOT NULL)")
         c.execute("CREATE INDEX IF NOT EXISTS i_ai_conv ON ai_history(user_id,conversation_id,id)")
@@ -804,9 +839,14 @@ def current_user():
         except Exception:
             return None
     if not uid: return None
-    if t - s.get("last_active", t) > IDLE_MIN * 60 or t - s.get("login_at", t) > ABS_HOURS * 3600:
-        # Kalıcı oturum 30 gün sürer; uygulama açıkken etkinlik zaman aşımı uygulanmaz.
-        s["last_active"] = t
+    # Kalıcı çerez kullanışlılık sağlar; aktif uygulama oturumu yine de boşta kalma
+    # ve mutlak süre sınırlarına uymalıdır. Eski davranış bu kontrolü hesaplıyor
+    # fakat oturumu kapatmıyordu.
+    idle_for = t - s.get("last_active", t)
+    session_age = t - s.get("login_at", t)
+    if idle_for > IDLE_MIN * 60 or session_age > ABS_HOURS * 3600:
+        logout("Güvenlik nedeniyle oturum süren doldu. Yeniden giriş yap.")
+        return None
     u = get_user(uid)
     if not u or u["suspended"] or not u.get("email_verified"):
         logout("Hesabın erişime kapatıldı veya e-posta doğrulaması eksik." if u else None)
@@ -1758,7 +1798,7 @@ def page_security(me):
                         st.rerun()
                     st.error("Kod hatalı.")
     with t3:
-        st.write(f"Boşta kalma süresi: **{IDLE_MIN} dk**, en fazla oturum: **{ABS_HOURS} saat**.")
+        st.write(f"Boşta kalma süresi: **{IDLE_MIN} dk**, mutlak oturum süresi: **{ABS_HOURS} saat**. Kalıcı giriş çerezi bu aktif oturum sınırlarını kaldırmaz.")
         st.write(f"Son giriş: {me['last_login'] or '-'}")
         if st.button("Çıkış yap"):
             logout("Çıkış yapıldı.")
@@ -2161,6 +2201,55 @@ def page_ai_plus(me):
                 st.success("Metin Esila sohbetine eklendi. Esila AI sayfasını aç.")
 
 
+# ───────────────────────── KULLANICI SÖZLEŞMESİ VE GİZLİLİK ONAYI ─────────────────────────
+# Politika sürümü değiştiğinde bu değeri artırın; kullanıcıdan yeni onay alınır.
+POLICY_VERSION = "2026-11-14-v1"
+
+POLICY_SECTIONS = [
+    ("Kullanım koşulları", "EduCore-AI eğitim amaçlı bir yardımcı platformdur. Kullanıcılar doğru bilgi vermeli, başkalarının hesaplarına erişmeye çalışmamalı, platformu rahatsız etme, dolandırıcılık, taciz veya hukuka aykırı amaçlarla kullanmamalıdır. Öğrenciler ödev ve sınavlarda platformu öğrenmeyi desteklemek için kullanmalı; okul kurallarına uymalıdır. Platformdaki yapay zekâ yanıtları hatalı veya eksik olabilir; önemli akademik kararlar öğretmen ve güvenilir kaynaklarla kontrol edilmelidir."),
+    ("Gizlilik ve kişisel veriler", "Hesap oluşturma ve platform özelliklerini sunma amacıyla kullanıcı adı, e-posta, hesap/rol bilgileri, çalışma kayıtları, sohbet içerikleri ve güvenlik olaylarına ilişkin gerekli kayıtlar işlenebilir. Toplanan veriler yalnızca belirlenmiş amaçlarla ve gerekli olduğu ölçüde kullanılmalıdır. Kullanıcılar destek kanalı üzerinden verilerine erişim, düzeltme veya silme talebi iletebilir. Saklama süreleri, veri sorumlusu iletişim bilgileri, hukuki sebepler, alıcı grupları ve ilgili kişi hakları yayına çıkmadan önce gerçek işletmeci bilgileriyle tamamlanmış ayrı KVKK aydınlatma metninde açıklanmalıdır."),
+    ("Yapay zekâ ve harici hizmetler", "Bulut Esila AI etkinse sohbet mesajları, yanıt üretmek için seçilen harici yapay zekâ sağlayıcısına gönderilebilir. Bu sağlayıcının kendi gizlilik ve saklama koşulları geçerli olabilir. Kullanıcılar parola, kimlik numarası, adres, sağlık bilgisi veya başka hassas bilgileri sohbetlere yazmamalıdır. Bulut AI kapalıysa uygulama yapılandırmasına bağlı olarak yerel/yedek model veya sınırlı yerel yanıtlar kullanılabilir."),
+    ("Öğretmen ve öğrenci güvenliği", "Öğretmen başvurusu onaylanana kadar öğretmen yetkileri verilmez. Başvuru belgeleri yalnızca doğrulama amacıyla yetkili inceleyiciler tarafından değerlendirilmelidir. Çocuk kullanıcılar platformu veli/vasilerinin ve okullarının rehberliğiyle kullanmalıdır. Platform, acil yardım veya profesyonel danışmanlık hizmeti değildir."),
+    ("Hesap güvenliği ve sorumluluk", "Kullanıcılar hesap bilgilerini gizli tutmalı, güçlü ve benzersiz parola kullanmalı ve mümkünse iki aşamalı doğrulamayı açmalıdır. Şüpheli etkinlik, güvenlik açığı veya uygunsuz içerik uygulamadaki bildirim/destek kanalından iletilmelidir. Güvenlik kontrolleri riski azaltır ancak mutlak güvenlik garantisi vermez."),
+    ("Onay ve değişiklikler", "Devam ederek bu politika sürümünü okuduğunuzu ve kabul ettiğinizi beyan edersiniz. Politika önemli ölçüde değişirse yeni sürüm gösterilir ve yeniden onay istenir. Bu ekran tek başına KVKK aydınlatma yükümlülüğünün, açık rızanın veya hizmete özel diğer yasal metinlerin yerine geçmez."),
+]
+
+
+def has_policy_acceptance(user_id):
+    with db() as c:
+        return bool(c.execute(
+            "SELECT 1 FROM policy_acceptances WHERE user_id=? AND policy_version=?",
+            (int(user_id), POLICY_VERSION),
+        ).fetchone())
+
+
+def record_policy_acceptance(user_id):
+    with db() as c:
+        c.execute(
+            "INSERT OR IGNORE INTO policy_acceptances(user_id,policy_version,accepted_at) VALUES(?,?,?)",
+            (int(user_id), POLICY_VERSION, now()),
+        )
+    audit(str(user_id), "Politika Kabulü", POLICY_VERSION, 0)
+
+
+def page_policy_consent(me):
+    st.markdown(CSS, unsafe_allow_html=True)
+    hero("🛡️ EduCore-AI Güvenlik ve Kullanım Merkezi", "Devam etmeden önce kullanıcı koşullarını ve gizlilik açıklamalarını inceleyin.")
+    st.warning("Bu belge ürün içi bilgilendirme taslağıdır. Yayından önce işletmeci kimliği, iletişim bilgileri, veri sorumlusu bilgileri, saklama süreleri ve hukuki dayanaklar tamamlanmalı; KVKK ve çocuk kullanıcılar konusunda uzman hukuk danışmanına inceletilmelidir.")
+    st.caption(f"Belge sürümü: {POLICY_VERSION} · Hesap: {me['username']}")
+    for heading, body in POLICY_SECTIONS:
+        with st.expander(heading, expanded=True):
+            st.write(body)
+    st.markdown("**Kabul işlemi**")
+    acknowledged = st.checkbox("Güvenlik ve kullanım belgesini okudum, anladım ve kabul ediyorum.", key="policy_ack_checkbox")
+    if st.button("Kabul ediyorum ve devam et", type="primary", disabled=not acknowledged, use_container_width=True):
+        record_policy_acceptance(me["id"])
+        st.session_state.pop("policy_ack_checkbox", None)
+        st.success("Onayınız kaydedildi.")
+        st.rerun()
+    st.caption("Kabul etmeden uygulamanın diğer bölümlerine erişemezsiniz. Kabul kaydı hesap kimliği, belge sürümü ve zaman bilgisiyle tutulur; IP veya cihaz kimliği bu işlem için kaydedilmez.")
+
+
 # ───────────────────────── ANA AKIŞ ─────────────────────────
 def main():
     init_db()
@@ -2169,6 +2258,10 @@ def main():
     me=current_user()
     if not me:
         page_auth(); return
+    # Güncel politika sürümü kabul edilmeden uygulamanın geri kalanına erişim verilmez.
+    if not has_policy_acceptance(me["id"]):
+        page_policy_consent(me)
+        return
     # Rolü her istekte DB'den okunan kullanıcı kaydından alıyoruz.
     pages={
         "home":("🏠 Ana Sayfa",page_home),
@@ -2187,6 +2280,7 @@ def main():
         pages["teacher_admin"]=("🧑‍🏫 Öğretmen yetkileri",page_teacher_admin)
         pages["audit"]=("📊 Denetim Paneli",page_audit)
     st.sidebar.title("🛡️ EduCore-AI")
+    st.sidebar.caption("Otomatik uyumlu arayüz · Telefon / Tablet / Bilgisayar")
     st.sidebar.caption(f"👤 {me['username']} · {me['edu_id']} · {'Yönetici' if me['is_admin'] else ('Öğretmen' if me.get('role')=='teacher' else 'Öğrenci')}")
     key=st.sidebar.radio("Menü",list(pages),format_func=lambda k:pages[k][0],label_visibility="collapsed")
     if st.sidebar.button("Çıkış",use_container_width=True): logout("Çıkış yapıldı."); st.rerun()
