@@ -2,7 +2,8 @@
 EduCore-AI Stüdyo | Esila Çin Seddi Ultra  (v2 Enterprise)
 Kurulum :  pip install -r requirements.txt
 Çalıştır:  streamlit run app.py
-İlk yönetici: ilk kayıt olan kullanıcı (veya  EDUCORE_ADMIN=kullanici_adi  ortam değişkeni).
+İlk yönetici: ilk çalıştırmada üretilen tek kullanımlık kodu (.educore_admin_code dosyası / konsol çıktısı)
+kayıt ekranındaki "yönetici kodu" alanına gir. (Alternatif: EDUCORE_ADMIN=kullanici_adi ortam değişkeni.)
 
 TEK DOSYA: requirements.txt, .streamlit/config.toml (koyu tema) ve .gitignore ilk çalıştırmada
 bu dosya tarafından otomatik oluşturulur. Tema, uygulama yeniden başlatılınca devreye girer.
@@ -1029,7 +1030,10 @@ def page_auth():
                     st.error("Şifreler uyuşmuyor.")
                 else:
                     err = register(u, p, ac)
-                    st.error(err) if err else st.success("Kayıt tamam! Şimdi giriş yapabilirsin.")
+                    if err:
+                        st.error(err)
+                    else:
+                        st.success("Kayıt tamam! Şimdi giriş yapabilirsin.")
 
 
 TIPS = ["Aynı konuyu bir kez uzun çalışmaktansa 3 gün kısa çalışmak daha kalıcıdır.",
@@ -1072,7 +1076,10 @@ def page_ai(me):
                          "ORDER BY id", (me["id"],)).fetchall()
     for r in rows:
         with st.chat_message(r["role"]):
-            st.text(r["content"]) if r["role"] == "user" else st.markdown(r["content"])
+            if r["role"] == "user":
+                st.text(r["content"])
+            else:
+                st.markdown(r["content"])
     if rows and rows[-1]["role"] == "assistant" and len(rows) >= 2:
         b1, b2, _ = st.columns([1, 1, 3])
         if b1.button("🃏 Kartlara ekle"):
@@ -1393,7 +1400,10 @@ def page_security(me):
             new = st.text_input("Yeni şifre", type="password", max_chars=128)
             if st.form_submit_button("Güncelle") and rate_ok(me["username"]):
                 err = change_password(me, cur, new)
-                st.error(err) if err else st.success("Şifre güncellendi.")
+                if err:
+                    st.error(err)
+                else:
+                    st.success("Şifre güncellendi.")
         st.caption(f"Son {HISTORY_DEPTH} şifren tekrar kullanılamaz. Hash: PBKDF2-HMAC-SHA256, "
                    f"{PBKDF2_ITER:,} iterasyon + salt + pepper.".replace(",", "."))
         st.caption("💬 Mesajlar diskte şifreli saklanır." if Fernet
@@ -1558,7 +1568,10 @@ def page_audit(me):
             pick = st.selectbox("Yedek seç", files, format_func=os.path.basename)
             v1, v2 = st.columns(2)
             if v1.button("🔍 Bütünlüğü doğrula"):
-                st.success("Yedek sağlam ✅") if check_db(pick) else st.error("Yedek bozuk ❌")
+                if check_db(pick):
+                    st.success("Yedek sağlam ✅")
+                else:
+                    st.error("Yedek bozuk ❌")
             with open(pick, "rb") as fh:
                 v2.download_button("⬇️ İndir", fh.read(), os.path.basename(pick), "application/octet-stream")
         st.info("**Geri yükleme:** uygulamayı durdur → seçtiğin yedeği `educore_v2.db` üzerine kopyala "
